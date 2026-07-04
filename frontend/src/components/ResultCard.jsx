@@ -2,7 +2,7 @@ import React from 'react';
 import SaveButton from './SaveButton';
 import { BookOpen, Info, Hash, Play, Link, Lightbulb, MessageSquare } from 'lucide-react';
 
-export default function ResultCard({ result, sourceLanguage, targetLanguage, inputText }) {
+export default function ResultCard({ result, sourceLanguage, targetLanguage, inputText, mode }) {
   if (!result) return null;
 
   // Helper function to extract data robustly from any backend structure
@@ -153,15 +153,17 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
         </div>
 
         {/* Footer with Save to DB button */}
-        <div className="card-footer">
-          <SaveButton
-            type={result?.type}
-            sourceLanguage={sourceLanguage}
-            targetLanguage={targetLanguage}
-            searchKeyword={inputText}
-            dictionary={result?.dictionary}
-          />
-        </div>
+        {mode !== 'search' && (
+          <div className="card-footer">
+            <SaveButton
+              type={result?.type}
+              sourceLanguage={sourceLanguage}
+              targetLanguage={targetLanguage}
+              searchKeyword={inputText}
+              dictionary={result?.dictionary}
+            />
+          </div>
+        )}
       </div>
     );
   }
