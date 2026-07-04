@@ -279,6 +279,7 @@ export default function HomePage() {
                 sourceLanguage={sourceLanguage}
                 targetLanguage={targetLanguage}
                 inputText={text}
+                mode={mode}
               />
             </div>
           )}
