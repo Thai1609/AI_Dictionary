@@ -2,7 +2,7 @@ async function testSearch() {
   const keyword = encodeURIComponent('hello');
 
   const res = await fetch(
-    `https://ai-dictionary-backend-36vo.onrender.com/api/dictionary/search?keyword=${keyword}`,
+    `https://ai-dictionary-backend-36vo.onrender.com/api/dictionary/health`,
     {
       method: 'GET'
     }
