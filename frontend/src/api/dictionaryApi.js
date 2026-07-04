@@ -1,7 +1,7 @@
 import { getApiBaseUrl } from '../config/apiConfig';
 
 function normalizeBaseUrl() {
-  return (getApiBaseUrl() || 'http://localhost:8080')
+  return (getApiBaseUrl())
     .trim()
     .replace(/\/+$/, '');
 }
