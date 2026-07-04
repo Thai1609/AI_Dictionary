@@ -1,0 +1,6 @@
+{
+  "name": "AI Dictionary",
+  "description": "An AI-powered dictionary, sentence analyzer, and grammar corrector.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
