@@ -1,15 +1,19 @@
-async function testSearch() {
-  const keyword = encodeURIComponent('hello');
+async function test() {
+  try {
+    const res = await fetch(
+      'https://ai-dictionary-backend-36vo.onrender.com/api/dictionary/health',
+      {
+        method: 'GET'
+      }
+    );
 
-  const res = await fetch(
-    `https://ai-dictionary-backend-36vo.onrender.com/api/dictionary/health`,
-    {
-      method: 'GET'
-    }
-  );
+    console.log('GET /api/dictionary/health Status:', res.status);
 
-  console.log('Search Status:', res.status);
-  console.log(await res.text());
+    const text = await res.text();
+    console.log('Body:', text.substring(0, 200));
+  } catch (err) {
+    console.error('Test API error:', err);
+  }
 }
 
-testSearch();
+test();
