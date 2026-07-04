@@ -1,0 +1,51 @@
+# =========================
+# Spring Boot / Java
+# =========================
+backend/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# =========================
+# Vite / React
+# =========================
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# =========================
+# Env / Secret
+# =========================
+.env
+*.env
+backend/src/main/resources/application-local.properties
+
+# =========================
+# Database
+# =========================
+*.sql
+*.backup
+*.dump
+
+# =========================
+# Eclipse / STS
+# =========================
+.metadata/
+.settings/
+.project
+.classpath
+.springBeans
+.sts4-cache/
+
+# =========================
+# IntelliJ / VS Code
+# =========================
+.idea/
+.vscode/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
