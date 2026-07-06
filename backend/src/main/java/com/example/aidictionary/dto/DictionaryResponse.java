@@ -1,10 +1,12 @@
 package com.example.aidictionary.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Data;
 
 import java.util.List;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class DictionaryResponse {
 
     private String word;
@@ -24,6 +26,7 @@ public class DictionaryResponse {
     private String note;
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ExampleItem {
         private String sentence;
         private String reading;
@@ -31,16 +34,19 @@ public class DictionaryResponse {
     }
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class KeyPhraseItem {
         private String phrase;
         private String reading;
         private String meaning;
         private String note;
     }
- 
+
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class GrammarPointItem {
         private String pattern;
+        private String explanation;
         private String meaning;
         private String example;
     }
