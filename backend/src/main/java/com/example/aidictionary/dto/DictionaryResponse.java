@@ -24,6 +24,7 @@ public class DictionaryResponse {
     private String note;
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ExampleItem {
         private String sentence;
         private String reading;
@@ -31,6 +32,7 @@ public class DictionaryResponse {
     }
 
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class KeyPhraseItem {
         private String phrase;
         private String reading;
@@ -39,6 +41,7 @@ public class DictionaryResponse {
     }
  
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class GrammarPointItem {
         private String pattern;
         private String meaning;
