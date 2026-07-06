@@ -251,50 +251,82 @@ public class AiService {
     }
 
     private String buildSentencePrompt(String sentence, String sourceLanguage, String targetLanguage) {
-        return """
-                Bạn là AI Dictionary chuyên phân tích câu.
+    return """
+            Bạn là AI Dictionary dành cho người Việt học tiếng Trung.
 
-                Hãy phân tích câu sau:
-                - Câu: "%s"
-                - Ngôn ngữ gốc: "%s"
-                - Ngôn ngữ đích: "%s"
+            Hãy phân tích câu sau:
+            - Câu người dùng nhập: "%s"
+            - Ngôn ngữ câu gốc: "%s"
+            - Ngôn ngữ muốn học / muốn dịch sang: "%s"
 
-                Chỉ trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.
+            Chỉ trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.
+            Tuyệt đối không dùng tiếng Anh trong bất kỳ field nào.
 
-                Format JSON bắt buộc:
+            Format JSON bắt buộc:
 
-                {
-                  "type": "sentence",
-                  "dictionary": {
-                    "originalSentence": "",
-                    "translation": "",
-                    "naturalVersion": "",
-                    "keyPhrases": [
-                      {
-                        "phrase": "",
-                        "meaning": "",
-                        "note": ""
-                      }
-                    ],
-                    "grammarPoints": [
-                      {
-                        "pattern": "",
-                        "meaning": "",
-                        "example": ""
-                      }
-                    ],
-                    "note": ""
-                  },
-                  "message": ""
-                }
+            {
+              "type": "sentence",
+              "dictionary": {
+                "word": "",
+                "originalSentence": "",
+                "pronunciation": "",
+                "reading": "",
+                "translation": "",
+                "naturalVersion": "",
+                "keyPhrases": [
+                  {
+                    "phrase": "",
+                    "reading": "",
+                    "meaning": ""
+                  }
+                ],
+                "grammarPoints": [
+                  {
+                    "pattern": "",
+                    "explanation": "",
+                    "example": ""
+                  }
+                ],
+                "note": ""
+              },
+              "message": ""
+            }
 
-                Yêu cầu:
-                - translation dịch sang ngôn ngữ đích.
-                - naturalVersion là cách nói tự nhiên hơn nếu cần.
-                - keyPhrases giải thích các cụm từ quan trọng trong câu.
-                - grammarPoints giải thích ngữ pháp chính.
-                """.formatted(sentence, sourceLanguage, targetLanguage);
-    }
+            Quy tắc bắt buộc:
+            - Người dùng là người Việt, nên mọi phần giải thích phải viết bằng tiếng Việt.
+            - Không được dùng tiếng Anh trong meaning, explanation, note, example.
+            - originalSentence là câu gốc người dùng nhập.
+            - Nếu sourceLanguage là vi và targetLanguage là zh:
+              + translation phải là bản dịch tiếng Trung tự nhiên.
+              + naturalVersion phải là cách nói tiếng Trung tự nhiên hơn nếu cần.
+              + reading phải là pinyin đầy đủ của câu tiếng Trung trong translation hoặc naturalVersion.
+              + keyPhrases[].phrase là cụm từ tiếng Trung quan trọng.
+              + keyPhrases[].reading là pinyin của cụm từ đó.
+              + keyPhrases[].meaning là nghĩa tiếng Việt của cụm từ đó.
+              + grammarPoints[].pattern là cấu trúc tiếng Trung.
+              + grammarPoints[].explanation là giải thích bằng tiếng Việt.
+              + grammarPoints[].example là ví dụ tiếng Trung kèm nghĩa tiếng Việt nếu cần.
+
+            - Nếu sourceLanguage là zh và targetLanguage là vi:
+              + translation phải là bản dịch tiếng Việt.
+              + reading phải là pinyin đầy đủ của câu tiếng Trung gốc.
+              + naturalVersion là câu tiếng Việt tự nhiên hơn nếu cần.
+              + keyPhrases[].phrase là cụm từ tiếng Trung quan trọng.
+              + keyPhrases[].reading là pinyin.
+              + keyPhrases[].meaning là nghĩa tiếng Việt.
+              + grammarPoints[].explanation phải là tiếng Việt.
+
+            Ví dụ:
+            Input: "biết thân biết phận"
+            Output đúng:
+            - translation: "认清本分"
+            - naturalVersion: "安分守己"
+            - keyPhrases[].meaning: "nhận rõ vị trí, bổn phận của mình"
+            - grammarPoints[].explanation: "Cấu trúc này diễn tả việc hiểu rõ thân phận, vị trí hoặc giới hạn của bản thân."
+            Không được trả meaning bằng tiếng Anh như: "To know oneself".
+
+            """.formatted(sentence, sourceLanguage, targetLanguage);
+}
 
     private String buildGrammarPrompt(String text, String sourceLanguage, String targetLanguage) {
         return """
