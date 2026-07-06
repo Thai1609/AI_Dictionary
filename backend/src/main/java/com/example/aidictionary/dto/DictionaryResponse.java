@@ -42,6 +42,7 @@ public class DictionaryResponse {
     public static class GrammarPointItem {
         private String pattern;
         private String meaning;
+        private String explanation;
         private String example;
     }
 }
