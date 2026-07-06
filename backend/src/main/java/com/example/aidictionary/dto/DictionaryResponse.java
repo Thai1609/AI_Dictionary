@@ -33,10 +33,11 @@ public class DictionaryResponse {
     @Data
     public static class KeyPhraseItem {
         private String phrase;
+        private String reading;
         private String meaning;
         private String note;
     }
-
+ 
     @Data
     public static class GrammarPointItem {
         private String pattern;
