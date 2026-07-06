@@ -48,6 +48,7 @@ public class DictionaryResponse {
         private String pattern;
         private String explanation;
         private String meaning;
+        private String explanation;
         private String example;
     }
 }
