@@ -16,8 +16,8 @@ import com.example.aidictionary.exception.BadRequestException;
 import com.example.aidictionary.exception.ResourceNotFoundException;
 import com.example.aidictionary.repository.DictionaryEntryRepository;
 import com.example.aidictionary.repository.GrammarCheckRepository;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -40,7 +40,7 @@ public class DictionaryPersistenceService {
 
     private final DictionaryEntryRepository dictionaryEntryRepository;
     private final GrammarCheckRepository grammarCheckRepository;
-    private final JsonMapper jsonMapper = JsonMapper.builder().build();
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public Optional<DictionaryResponse> findExistingWord(
@@ -125,37 +125,70 @@ public class DictionaryPersistenceService {
             return List.of();
         }
 
-        List<Long> ids;
-        if (isBlank(sourceLanguage) && isBlank(targetLanguage)) {
-            // Giữ tương thích với frontend cũ: không truyền ngôn ngữ thì tìm toàn bộ.
-            ids = dictionaryEntryRepository.searchEntryIds(
-                    cleanKeyword,
-                    normalizedKeyword,
-                    MAX_SEARCH_RESULTS
-            );
-        } else {
-            String finalSourceLanguage = defaultLanguage(sourceLanguage, "vi");
-            String finalTargetLanguage = defaultLanguage(targetLanguage, "zh");
-            ids = dictionaryEntryRepository.searchEntryIdsByLanguage(
-                    cleanKeyword,
-                    normalizedKeyword,
-                    finalSourceLanguage,
-                    finalTargetLanguage,
-                    MAX_SEARCH_RESULTS
-            );
+        boolean filterByLanguage = !isBlank(sourceLanguage) || !isBlank(targetLanguage);
+        String finalSourceLanguage = filterByLanguage
+                ? defaultLanguage(sourceLanguage, "vi")
+                : null;
+        String finalTargetLanguage = filterByLanguage
+                ? defaultLanguage(targetLanguage, "zh")
+                : null;
+
+        // Dung LinkedHashSet de loai trung nhung van giu dung thu tu xep hang tu PostgreSQL.
+        java.util.LinkedHashSet<Long> rankedIds = new java.util.LinkedHashSet<>();
+
+        List<Long> exactAndPrefixIds = filterByLanguage
+                ? dictionaryEntryRepository.searchExactAndPrefixIdsByLanguage(
+                        cleanKeyword,
+                        normalizedKeyword,
+                        finalSourceLanguage,
+                        finalTargetLanguage,
+                        MAX_SEARCH_RESULTS
+                )
+                : dictionaryEntryRepository.searchExactAndPrefixIds(
+                        cleanKeyword,
+                        normalizedKeyword,
+                        MAX_SEARCH_RESULTS
+                );
+
+        rankedIds.addAll(exactAndPrefixIds);
+
+        // Contains co the can scan nhieu dong, nen chi chay khi keyword du dai
+        // va exact/prefix chua du 20 ket qua.
+        if (rankedIds.size() < MAX_SEARCH_RESULTS && normalizedKeyword.length() >= 3) {
+            List<Long> containsIds = filterByLanguage
+                    ? dictionaryEntryRepository.searchContainsIdsByLanguage(
+                            normalizedKeyword,
+                            finalSourceLanguage,
+                            finalTargetLanguage,
+                            MAX_SEARCH_RESULTS
+                    )
+                    : dictionaryEntryRepository.searchContainsIds(
+                            normalizedKeyword,
+                            MAX_SEARCH_RESULTS
+                    );
+
+            for (Long id : containsIds) {
+                if (rankedIds.size() >= MAX_SEARCH_RESULTS) {
+                    break;
+                }
+                rankedIds.add(id);
+            }
         }
 
-        if (ids.isEmpty()) {
+        if (rankedIds.isEmpty()) {
             return List.of();
         }
 
+        List<Long> ids = new ArrayList<>(rankedIds);
         Map<Long, Integer> positions = new HashMap<>();
         for (int index = 0; index < ids.size(); index++) {
             positions.put(ids.get(index), index);
         }
 
         List<DictionaryEntry> entries = dictionaryEntryRepository.findAllByIdIn(ids);
-        entries.sort(Comparator.comparingInt(entry -> positions.getOrDefault(entry.getId(), Integer.MAX_VALUE)));
+        entries.sort(Comparator.comparingInt(
+                entry -> positions.getOrDefault(entry.getId(), Integer.MAX_VALUE)
+        ));
 
         return entries.stream()
                 .map(this::convertToDictionaryResponse)
@@ -458,8 +491,8 @@ public class DictionaryPersistenceService {
 
     private String toJson(GrammarResponse grammar) {
         try {
-            return jsonMapper.writeValueAsString(grammar);
-        } catch (JacksonException exception) {
+            return objectMapper.writeValueAsString(grammar);
+        } catch (JsonProcessingException exception) {
             return null;
         }
     }

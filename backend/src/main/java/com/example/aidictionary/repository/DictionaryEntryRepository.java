@@ -31,6 +31,35 @@ public interface DictionaryEntryRepository extends JpaRepository<DictionaryEntry
 
     List<DictionaryEntry> findAllByIdIn(Collection<Long> ids);
 
+    /*
+     * Buoc 1: tim exact/prefix. Cau query nay chi dung B-tree, khong phu thuoc pg_trgm.
+     */
+    @Query(value = """
+            SELECT de.id
+            FROM dictionary_entries de
+            WHERE lower(de.word) = lower(:keyword)
+               OR de.normalized_word = :normalizedKeyword
+               OR de.normalized_search_keyword = :normalizedKeyword
+               OR de.normalized_word LIKE CONCAT(:normalizedKeyword, '%')
+               OR de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%')
+            ORDER BY
+                CASE
+                    WHEN lower(de.word) = lower(:keyword) THEN 100
+                    WHEN de.normalized_word = :normalizedKeyword THEN 98
+                    WHEN de.normalized_search_keyword = :normalizedKeyword THEN 96
+                    WHEN de.normalized_word LIKE CONCAT(:normalizedKeyword, '%') THEN 90
+                    WHEN de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%') THEN 88
+                    ELSE 0
+                END DESC,
+                de.id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> searchExactAndPrefixIds(
+            @Param("keyword") String keyword,
+            @Param("normalizedKeyword") String normalizedKeyword,
+            @Param("limit") int limit
+    );
+
     @Query(value = """
             SELECT de.id
             FROM dictionary_entries de
@@ -42,13 +71,6 @@ public interface DictionaryEntryRepository extends JpaRepository<DictionaryEntry
                  OR de.normalized_search_keyword = :normalizedKeyword
                  OR de.normalized_word LIKE CONCAT(:normalizedKeyword, '%')
                  OR de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%')
-                 OR (
-                      char_length(:normalizedKeyword) >= 3
-                      AND (
-                          de.search_text ILIKE CONCAT('%', :normalizedKeyword, '%')
-                          OR de.search_text % :normalizedKeyword
-                      )
-                 )
               )
             ORDER BY
                 CASE
@@ -57,18 +79,12 @@ public interface DictionaryEntryRepository extends JpaRepository<DictionaryEntry
                     WHEN de.normalized_search_keyword = :normalizedKeyword THEN 96
                     WHEN de.normalized_word LIKE CONCAT(:normalizedKeyword, '%') THEN 90
                     WHEN de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%') THEN 88
-                    WHEN de.search_text ILIKE CONCAT('%', :normalizedKeyword, '%') THEN 75
-                    ELSE 50
+                    ELSE 0
                 END DESC,
-                GREATEST(
-                    similarity(COALESCE(de.normalized_word, ''), :normalizedKeyword),
-                    similarity(COALESCE(de.normalized_search_keyword, ''), :normalizedKeyword),
-                    similarity(COALESCE(de.search_text, ''), :normalizedKeyword)
-                ) DESC,
                 de.id DESC
             LIMIT :limit
             """, nativeQuery = true)
-    List<Long> searchEntryIdsByLanguage(
+    List<Long> searchExactAndPrefixIdsByLanguage(
             @Param("keyword") String keyword,
             @Param("normalizedKeyword") String normalizedKeyword,
             @Param("sourceLanguage") String sourceLanguage,
@@ -76,47 +92,57 @@ public interface DictionaryEntryRepository extends JpaRepository<DictionaryEntry
             @Param("limit") int limit
     );
 
-    /**
-     * PostgreSQL thực hiện việc lọc, chấm điểm và LIMIT trước khi Java tải entity.
-     * - B-tree phục vụ exact/prefix.
-     * - pg_trgm GIN phục vụ contains/fuzzy khi keyword dài từ 3 ký tự.
+    /*
+     * Buoc 2: contains fallback. Chi goi khi exact/prefix chua du ket qua va keyword >= 3 ky tu.
+     * Khong dung similarity() hay toan tu %, nen khong can extension pg_trgm.
      */
     @Query(value = """
             SELECT de.id
             FROM dictionary_entries de
-            WHERE lower(de.word) = lower(:keyword)
-               OR de.normalized_word = :normalizedKeyword
-               OR de.normalized_search_keyword = :normalizedKeyword
-               OR de.normalized_word LIKE CONCAT(:normalizedKeyword, '%')
-               OR de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%')
-               OR (
-                    char_length(:normalizedKeyword) >= 3
-                    AND (
-                        de.search_text ILIKE CONCAT('%', :normalizedKeyword, '%')
-                        OR de.search_text % :normalizedKeyword
-                    )
-               )
+            WHERE de.search_text LIKE CONCAT('%', :normalizedKeyword, '%')
+               OR de.normalized_word LIKE CONCAT('%', :normalizedKeyword, '%')
+               OR de.normalized_search_keyword LIKE CONCAT('%', :normalizedKeyword, '%')
             ORDER BY
                 CASE
-                    WHEN lower(de.word) = lower(:keyword) THEN 100
-                    WHEN de.normalized_word = :normalizedKeyword THEN 98
-                    WHEN de.normalized_search_keyword = :normalizedKeyword THEN 96
                     WHEN de.normalized_word LIKE CONCAT(:normalizedKeyword, '%') THEN 90
                     WHEN de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%') THEN 88
-                    WHEN de.search_text ILIKE CONCAT('%', :normalizedKeyword, '%') THEN 75
-                    ELSE 50
+                    WHEN de.normalized_word LIKE CONCAT('%', :normalizedKeyword, '%') THEN 80
+                    WHEN de.normalized_search_keyword LIKE CONCAT('%', :normalizedKeyword, '%') THEN 78
+                    ELSE 70
                 END DESC,
-                GREATEST(
-                    similarity(COALESCE(de.normalized_word, ''), :normalizedKeyword),
-                    similarity(COALESCE(de.normalized_search_keyword, ''), :normalizedKeyword),
-                    similarity(COALESCE(de.search_text, ''), :normalizedKeyword)
-                ) DESC,
                 de.id DESC
             LIMIT :limit
             """, nativeQuery = true)
-    List<Long> searchEntryIds(
-            @Param("keyword") String keyword,
+    List<Long> searchContainsIds(
             @Param("normalizedKeyword") String normalizedKeyword,
+            @Param("limit") int limit
+    );
+
+    @Query(value = """
+            SELECT de.id
+            FROM dictionary_entries de
+            WHERE de.source_language = :sourceLanguage
+              AND de.target_language = :targetLanguage
+              AND (
+                    de.search_text LIKE CONCAT('%', :normalizedKeyword, '%')
+                 OR de.normalized_word LIKE CONCAT('%', :normalizedKeyword, '%')
+                 OR de.normalized_search_keyword LIKE CONCAT('%', :normalizedKeyword, '%')
+              )
+            ORDER BY
+                CASE
+                    WHEN de.normalized_word LIKE CONCAT(:normalizedKeyword, '%') THEN 90
+                    WHEN de.normalized_search_keyword LIKE CONCAT(:normalizedKeyword, '%') THEN 88
+                    WHEN de.normalized_word LIKE CONCAT('%', :normalizedKeyword, '%') THEN 80
+                    WHEN de.normalized_search_keyword LIKE CONCAT('%', :normalizedKeyword, '%') THEN 78
+                    ELSE 70
+                END DESC,
+                de.id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> searchContainsIdsByLanguage(
+            @Param("normalizedKeyword") String normalizedKeyword,
+            @Param("sourceLanguage") String sourceLanguage,
+            @Param("targetLanguage") String targetLanguage,
             @Param("limit") int limit
     );
 }
