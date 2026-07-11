@@ -25,10 +25,6 @@ public class DictionaryExample {
     @Column(name = "example_sentence", columnDefinition = "TEXT")
     private String exampleSentence;
 
-    /**
-     * Pinyin hoặc cách đọc của câu ví dụ.
-     * Ví dụ tiếng Trung: nǐ hǎo, wǒ shì yuè nán rén
-     */
     @Column(name = "example_reading", columnDefinition = "TEXT")
     private String exampleReading;
 

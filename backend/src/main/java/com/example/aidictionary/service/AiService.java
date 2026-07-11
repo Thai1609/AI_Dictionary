@@ -3,23 +3,34 @@ package com.example.aidictionary.service;
 import com.example.aidictionary.dto.AnalyzeResponse;
 import com.example.aidictionary.dto.gemini.GeminiRequest;
 import com.example.aidictionary.dto.gemini.GeminiResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.example.aidictionary.exception.GeminiServiceException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
 
 @Service
-@RequiredArgsConstructor
 public class AiService {
 
-    private final WebClient webClientBuilder;
-    private final ObjectMapper objectMapper;
+    private final WebClient geminiWebClient;
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
+    public AiService(@Qualifier("geminiWebClient") WebClient geminiWebClient) {
+        this.geminiWebClient = geminiWebClient;
+    }
+    
     @Value("${gemini.api-key:}")
     private String geminiApiKey;
 
-    @Value("${gemini.model:gemini-2.5-flash}")
+    @Value("${gemini.model:gemini-2.0-flash}")
     private String geminiModel;
 
     @Value("${gemini.fallback-model:gemini-2.5-flash}")
@@ -28,66 +39,69 @@ public class AiService {
     @Value("${gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
     private String geminiBaseUrl;
 
+    @Value("${gemini.timeout-ms:20000}")
+    private long timeoutMs;
+
     public AnalyzeResponse analyzeWord(String word, String sourceLanguage, String targetLanguage) {
-        String prompt = buildWordPrompt(word, sourceLanguage, targetLanguage);
-        return callGeminiAndParse(prompt, "word");
+        return callGeminiAndParse(buildWordPrompt(word, sourceLanguage, targetLanguage), "word");
     }
 
     public AnalyzeResponse analyzeSentence(String sentence, String sourceLanguage, String targetLanguage) {
-        String prompt = buildSentencePrompt(sentence, sourceLanguage, targetLanguage);
-        return callGeminiAndParse(prompt, "sentence");
+        return callGeminiAndParse(buildSentencePrompt(sentence, sourceLanguage, targetLanguage), "sentence");
     }
 
     public AnalyzeResponse checkGrammar(String text, String sourceLanguage, String targetLanguage) {
-        String prompt = buildGrammarPrompt(text, sourceLanguage, targetLanguage);
-        return callGeminiAndParse(prompt, "grammar");
+        return callGeminiAndParse(buildGrammarPrompt(text, sourceLanguage, targetLanguage), "grammar");
     }
 
     private AnalyzeResponse callGeminiAndParse(String prompt, String type) {
+        if (geminiApiKey == null || geminiApiKey.isBlank()) {
+            throw new GeminiServiceException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Gemini API key chưa được cấu hình."
+            );
+        }
+
+        GeminiResponse geminiResponse;
         try {
-            if (geminiApiKey == null || geminiApiKey.trim().isEmpty()) {
-                return errorResponse(type, "Gemini API key chưa được cấu hình.");
+            geminiResponse = callGemini(prompt, geminiModel);
+        } catch (GeminiServiceException firstError) {
+            boolean canFallback = isQuotaError(firstError)
+                    && geminiFallbackModel != null
+                    && !geminiFallbackModel.isBlank()
+                    && !geminiFallbackModel.equals(geminiModel);
+            if (!canFallback) {
+                throw firstError;
             }
+            geminiResponse = callGemini(prompt, geminiFallbackModel);
+        }
 
-            GeminiResponse geminiResponse;
+        if (geminiResponse == null
+                || geminiResponse.getFirstText() == null
+                || geminiResponse.getFirstText().isBlank()) {
+            throw new GeminiServiceException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Gemini không trả về dữ liệu."
+            );
+        }
 
-            try {
-                geminiResponse = callGemini(prompt, geminiModel);
-            } catch (Exception firstError) {
-                String errorMessage = firstError.getMessage();
-
-                if (errorMessage != null &&
-                        (errorMessage.contains("429")
-                                || errorMessage.contains("RESOURCE_EXHAUSTED")
-                                || errorMessage.toLowerCase().contains("quota"))) {
-                    geminiResponse = callGemini(prompt, geminiFallbackModel);
-                } else {
-                    throw firstError;
-                }
-            }
-
-            if (geminiResponse == null || geminiResponse.getFirstText() == null) {
-                return errorResponse(type, "Gemini không trả về dữ liệu.");
-            }
-
-            String aiText = geminiResponse.getFirstText();
-            String cleanJson = cleanJson(aiText);
-
-            AnalyzeResponse response = objectMapper.readValue(cleanJson, AnalyzeResponse.class);
-
-            if (response.getType() == null || response.getType().trim().isEmpty()) {
+        String aiText = geminiResponse.getFirstText();
+        try {
+            AnalyzeResponse response = jsonMapper.readValue(
+                    cleanJson(aiText),
+                    AnalyzeResponse.class
+            );
+            if (response.getType() == null || response.getType().isBlank()) {
                 response.setType(type);
             }
-
             response.setRawAiResponse(aiText);
-
             return response;
-
-        } catch (Exception e) {
-            return AnalyzeResponse.builder()
-                    .type(type)
-                    .message("Lỗi khi gọi Gemini AI: " + e.getMessage())
-                    .build();
+        } catch (JacksonException exception) {
+            throw new GeminiServiceException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Gemini trả về JSON không hợp lệ.",
+                    exception
+            );
         }
     }
 
@@ -98,23 +112,56 @@ public class AiService {
                 + ":generateContent?key="
                 + geminiApiKey;
 
-        GeminiRequest request = new GeminiRequest(prompt);
-
-        return webClientBuilder
-                .post()
-                .uri(url)
-                .header("Content-Type", "application/json")
-                .bodyValue(request)
-                .retrieve()
-                .bodyToMono(GeminiResponse.class)
-                .block();
+        try {
+            return geminiWebClient
+                    .post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(new GeminiRequest(prompt))
+                    .retrieve()
+                    .bodyToMono(GeminiResponse.class)
+                    .timeout(Duration.ofMillis(Math.max(timeoutMs, 1000L)))
+                    .block();
+        } catch (WebClientResponseException exception) {
+            HttpStatus status = exception.getStatusCode().value() == 429
+                    ? HttpStatus.TOO_MANY_REQUESTS
+                    : HttpStatus.BAD_GATEWAY;
+            throw new GeminiServiceException(
+                    status,
+                    "Gemini API trả về lỗi HTTP " + exception.getStatusCode().value() + ".",
+                    exception
+            );
+        } catch (RuntimeException exception) {
+            if (containsCause(exception, TimeoutException.class)) {
+                throw new GeminiServiceException(
+                        HttpStatus.GATEWAY_TIMEOUT,
+                        "Gemini phản hồi quá thời gian cho phép " + timeoutMs + " ms.",
+                        exception
+                );
+            }
+            throw new GeminiServiceException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Không thể kết nối đến Gemini API.",
+                    exception
+            );
+        }
     }
 
-    private AnalyzeResponse errorResponse(String type, String message) {
-        return AnalyzeResponse.builder()
-                .type(type)
-                .message(message)
-                .build();
+    private boolean isQuotaError(GeminiServiceException exception) {
+        return exception.getStatus() == HttpStatus.TOO_MANY_REQUESTS
+                || (exception.getMessage() != null
+                && exception.getMessage().toLowerCase().contains("quota"));
+    }
+
+    private boolean containsCause(Throwable throwable, Class<? extends Throwable> expectedType) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (expectedType.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private String cleanJson(String text) {
@@ -123,28 +170,22 @@ public class AiService {
         }
 
         String clean = text.trim();
-
         if (clean.startsWith("```json")) {
             clean = clean.substring(7);
         }
-
         if (clean.startsWith("```")) {
             clean = clean.substring(3);
         }
-
         if (clean.endsWith("```")) {
             clean = clean.substring(0, clean.length() - 3);
         }
 
         clean = clean.trim();
-
-        int firstBrace = clean.indexOf("{");
-        int lastBrace = clean.lastIndexOf("}");
-
+        int firstBrace = clean.indexOf('{');
+        int lastBrace = clean.lastIndexOf('}');
         if (firstBrace >= 0 && lastBrace > firstBrace) {
             clean = clean.substring(firstBrace, lastBrace + 1);
         }
-
         return clean.trim();
     }
 
@@ -348,6 +389,7 @@ public class AiService {
                     "correctedText": "",
                     "naturalText": "",
                     "translation": "",
+                    "isCorrect": true,
                     "errors": [
                       {
                         "wrong": "",
@@ -368,6 +410,7 @@ public class AiService {
                 }
 
                 Yêu cầu:
+                - isCorrect là true nếu câu đúng, false nếu câu có lỗi.
                 - Nếu câu sai, correctedText là câu đã sửa.
                 - Nếu câu đúng, correctedText giữ nguyên.
                 - naturalText là cách nói tự nhiên hơn.

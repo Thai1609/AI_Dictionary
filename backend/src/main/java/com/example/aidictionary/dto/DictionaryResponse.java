@@ -1,6 +1,7 @@
 package com.example.aidictionary.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class DictionaryResponse {
 
+	@Size(max = 500, message = "Từ không được vượt quá 500 ký tự.")
 	private String word;
 	private String originalSentence;
 	private String pronunciation;
