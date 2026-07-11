@@ -1,34 +1,73 @@
 package com.example.aidictionary.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.core.Ordered;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.filter.CorsFilter;
 
 import java.util.Arrays;
+import java.util.List;
 
-@Configuration
-public class CorsConfig implements WebMvcConfigurer {
+@Configuration(proxyBeanMethods = false)
+public class CorsConfig {
 
-    private final String[] allowedOrigins;
-
-    public CorsConfig(
+    @Bean
+    public FilterRegistrationBean<CorsFilter> corsFilter(
             @Value("${app.cors.allowed-origin}")
-            String allowedOrigins
+            String allowedOriginsValue
     ) {
-        this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
-                .filter(value -> !value.isEmpty())
-                .toArray(String[]::new);
-    }
+        List<String> allowedOrigins =
+                Arrays.stream(allowedOriginsValue.split(","))
+                        .map(String::trim)
+                        .filter(origin -> !origin.isBlank())
+                        .distinct()
+                        .toList();
 
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins(allowedOrigins)
-                .allowedMethods("GET", "POST", "OPTIONS")
-                .allowedHeaders("Content-Type", "Authorization", "Accept")
-                .allowCredentials(true)
-                .maxAge(3600);
+        System.out.println("CORS allowed origins: " + allowedOrigins);
+
+        CorsConfiguration configuration =
+                new CorsConfiguration();
+
+        configuration.setAllowedOrigins(allowedOrigins);
+
+        configuration.setAllowedMethods(List.of(
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "OPTIONS"
+        ));
+
+        // Cho phép tất cả request headers của preflight
+        configuration.setAllowedHeaders(List.of("*"));
+
+        configuration.setExposedHeaders(List.of(
+                "Location",
+                "Content-Disposition"
+        ));
+
+        configuration.setAllowCredentials(true);
+        configuration.setMaxAge(3600L);
+
+        UrlBasedCorsConfigurationSource source =
+                new UrlBasedCorsConfigurationSource();
+
+        // Áp dụng cho toàn bộ backend
+        source.registerCorsConfiguration("/**", configuration);
+
+        CorsFilter corsFilter = new CorsFilter(source);
+
+        FilterRegistrationBean<CorsFilter> registration =
+                new FilterRegistrationBean<>(corsFilter);
+
+        // CORS chạy trước các filter khác
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+
+        return registration;
     }
 }
