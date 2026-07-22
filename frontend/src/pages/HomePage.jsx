@@ -6,7 +6,7 @@ import SearchBox from '../components/SearchBox';
 import ResultCard from '../components/ResultCard';
 import { analyzeText, searchDictionary, checkHealth } from '../api/dictionaryApi';
 import { getApiBaseUrl } from '../config/apiConfig';
-import { AlertCircle, RefreshCw, HelpCircle, BookOpen, Layers } from 'lucide-react';
+import { AlertCircle, RefreshCw, HelpCircle, BookOpen, Layers, WifiOff, Loader2 } from 'lucide-react';
 
 export default function HomePage() {
   const [text, setText] = useState('');
@@ -18,12 +18,23 @@ export default function HomePage() {
   const [result, setResult] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
   const [error, setError] = useState('');
+  const [isOffline, setIsOffline] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+
+  const checkConnection = async () => {
+    setCheckingStatus(true);
+    try {
+      await checkHealth();
+      setIsOffline(false);
+    } catch (err) {
+      setIsOffline(true);
+    } finally {
+      setCheckingStatus(false);
+    }
+  };
 
   useEffect(() => {
-    // Wake up the backend on initial load
-    checkHealth().catch(() => {
-      // Ignore initial health check errors
-    });
+    checkConnection();
   }, []);
 
   const handleAnalyze = async () => {
@@ -91,6 +102,62 @@ export default function HomePage() {
     setSearchResults(null);
     setError('');
   };
+
+  if (checkingStatus) {
+    return (
+      <div className="homepage-container" id="homepage-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <Header />
+        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+            <Loader2 size={48} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
+            <p style={{ color: 'var(--color-text-light)', fontWeight: 500 }}>Đang kiểm tra kết nối hệ thống...</p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (isOffline) {
+    return (
+      <div className="homepage-container" id="homepage-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        <Header />
+        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem' }}>
+          <div style={{ maxWidth: '500px', width: '100%', textAlign: 'center', backgroundColor: 'var(--color-bg-card)', padding: '3rem 2rem', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid var(--color-border)' }}>
+            <WifiOff size={64} style={{ color: 'var(--color-danger, #ef4444)', margin: '0 auto 1.5rem', opacity: 0.9 }} />
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '1rem' }}>
+              Hệ thống đang bảo trì
+            </h1>
+            <p style={{ color: 'var(--color-text-light)', fontSize: '1rem', lineHeight: 1.6, marginBottom: '2rem' }}>
+              Không thể kết nối đến máy chủ API. Hệ thống có thể đang bảo trì, nâng cấp, hoặc đang được khởi động lại. Vui lòng thử lại sau ít phút.
+            </p>
+            
+            <button 
+              onClick={checkConnection}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                backgroundColor: 'var(--color-primary)',
+                color: 'white',
+                border: 'none',
+                padding: '0.75rem 1.5rem',
+                borderRadius: '8px',
+                fontSize: '1rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'background-color 0.2s',
+              }}
+              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+              onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'var(--color-primary)'}
+            >
+              <RefreshCw size={18} />
+              Thử kết nối lại
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="homepage-container" id="homepage-container">
