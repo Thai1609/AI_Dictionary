@@ -188,9 +188,10 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
                   <div className="group-items" style={{ display: 'grid', gap: '1rem' }}>
                     {group.items.map((item, itemIndex) => (
                       <div key={itemIndex} className="translation-item-card" style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '8px', backgroundColor: 'var(--color-bg)' }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                           <span style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--color-text)' }}>{item.word}</span>
                           {(item.pronunciation || item.reading) && <span style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>[{item.pronunciation || item.reading}]</span>}
+                          {item.partOfSpeech && <span className="part-of-speech-badge" style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '0.1rem 0.4rem' }}>{item.partOfSpeech}</span>}
                         </div>
                         {item.meanings && item.meanings.length > 0 && (
                           <p style={{ marginBottom: '0.5rem', fontSize: '0.95rem', color: 'var(--color-text)' }}><strong>Nghĩa:</strong> {item.meanings.join(', ')}</p>
