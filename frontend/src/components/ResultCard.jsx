@@ -177,33 +177,42 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
           {/* Translation Groups */}
           {translationGroups.length > 0 && (
             <div className="translation-groups" style={{ marginTop: '2rem' }}>
-              <h3 className="section-title" style={{ fontSize: '1.2rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Các nghĩa/từ khác theo phân loại</h3>
+              <h3 className="section-title" style={{ fontSize: '1.2rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Các cách dùng khác</h3>
               {translationGroups.map((group, groupIndex) => (
-                <div key={groupIndex} className="translation-group" style={{ marginBottom: '1.5rem' }}>
+                <section key={`${group.partOfSpeech}-${groupIndex}`} className="translation-group" style={{ marginBottom: '1.5rem' }}>
                   {group.partOfSpeech && (
-                    <h4 style={{ fontSize: '1.1rem', color: 'var(--color-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <h3 style={{ fontSize: '1.1rem', color: 'var(--color-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <Hash size={14} /> {group.partOfSpeech}
-                    </h4>
+                    </h3>
                   )}
                   <div className="group-items" style={{ display: 'grid', gap: '1rem' }}>
                     {group.items.map((item, itemIndex) => (
-                      <div key={itemIndex} className="translation-item-card" style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '8px', backgroundColor: 'var(--color-bg)' }}>
+                      <article key={`${item.word}-${itemIndex}`} className="translation-item-card" style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '8px', backgroundColor: 'var(--color-bg)' }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--color-text)' }}>{item.word}</span>
+                          <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--color-text)' }}>{item.word}</h4>
                           {(item.pronunciation || item.reading) && <span style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>[{item.pronunciation || item.reading}]</span>}
                           {item.partOfSpeech && <span className="part-of-speech-badge" style={{ marginLeft: 'auto', fontSize: '0.8rem', padding: '0.1rem 0.4rem' }}>{item.partOfSpeech}</span>}
                         </div>
                         {item.meanings && item.meanings.length > 0 && (
-                          <p style={{ marginBottom: '0.5rem', fontSize: '0.95rem', color: 'var(--color-text)' }}><strong>Nghĩa:</strong> {item.meanings.join(', ')}</p>
+                          <div style={{ marginBottom: '0.5rem', fontSize: '0.95rem', color: 'var(--color-text)' }}>
+                            <strong>Nghĩa:</strong>
+                            <ul style={{ margin: '0.25rem 0 0 1.5rem', padding: 0 }}>
+                              {item.meanings.map((meaning, index) => (
+                                <li key={index} style={{ marginBottom: '0.25rem' }}>{meaning}</li>
+                              ))}
+                            </ul>
+                          </div>
                         )}
                         {item.usage && (
-                          <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem', fontStyle: 'italic', color: 'var(--color-text-light)' }}>Cách dùng: {item.usage}</p>
+                          <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem', fontStyle: 'italic', color: 'var(--color-text-light)' }}>
+                            <strong>Cách dùng:</strong> {item.usage}
+                          </p>
                         )}
                         {item.examples && item.examples.length > 0 && (
                           <div style={{ marginTop: '0.75rem', paddingLeft: '0.75rem', borderLeft: '2px solid var(--color-primary)' }}>
                             {item.examples.map((ex, exIndex) => (
                               <div key={exIndex} style={{ marginBottom: exIndex < item.examples.length - 1 ? '0.75rem' : 0 }}>
-                                <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-text)' }}>{ex.sentence}</p>
+                                {ex.sentence && <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-text)' }}>{ex.sentence}</p>}
                                 {ex.reading && <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-primary)' }}>{ex.reading}</p>}
                                 {ex.translation && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-light)' }}>{ex.translation}</p>}
                               </div>
@@ -211,18 +220,23 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
                           </div>
                         )}
                         {item.relatedWords && item.relatedWords.length > 0 && (
-                          <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.9rem', color: 'var(--color-text)' }}><strong>Liên quan:</strong> {item.relatedWords.join(', ')}</p>
+                          <div style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.9rem', color: 'var(--color-text)' }}>
+                            <strong>Liên quan:</strong>{' '}
+                            {item.relatedWords.map((word, index) => (
+                              <span key={word}>{word}{index < item.relatedWords.length - 1 ? ', ' : ''}</span>
+                            ))}
+                          </div>
                         )}
                         {item.note && (
                           <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.9rem', backgroundColor: 'rgba(255,193,7,0.1)', color: 'var(--color-text)', padding: '0.5rem', borderRadius: '4px' }}>
                             <Info size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'text-bottom' }} />
-                            {item.note}
+                            <strong>Ghi chú:</strong> {item.note}
                           </p>
                         )}
-                      </div>
+                      </article>
                     ))}
                   </div>
-                </div>
+                </section>
               ))}
             </div>
           )}
