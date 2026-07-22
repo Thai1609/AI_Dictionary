@@ -54,13 +54,18 @@ export async function searchDictionary(keyword) {
   const params = new URLSearchParams();
   params.append('keyword', cleanKeyword);
 
-  const response = await fetch(
-    `${baseUrl}/api/dictionary/search?${params.toString()}`,
-    {
-      method: 'GET',
-      headers: buildGetHeaders(),
-    }
-  );
+  let response;
+  try {
+    response = await fetch(
+      `${baseUrl}/api/dictionary/search?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: buildGetHeaders(),
+      }
+    );
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ (${baseUrl}). Chi tiết: ${err.message}`);
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
@@ -74,16 +79,21 @@ export async function analyzeText({ text, mode, sourceLanguage, targetLanguage }
   const effectiveMode = mode === 'search' ? 'word' : mode;
   const baseUrl = normalizeBaseUrl();
 
-  const response = await fetch(`${baseUrl}/api/dictionary/analyze`, {
-    method: 'POST',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({
-      text,
-      mode: effectiveMode,
-      sourceLanguage,
-      targetLanguage,
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/dictionary/analyze`, {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      body: JSON.stringify({
+        text,
+        mode: effectiveMode,
+        sourceLanguage,
+        targetLanguage,
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ (${baseUrl}). Chi tiết: ${err.message}`);
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
@@ -98,7 +108,7 @@ export async function analyzeText({ text, mode, sourceLanguage, targetLanguage }
 
     if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
       throw new Error(
-        'Hệ thống AI đang quá tải (429 Too Many Requests). Vui lòng thử lại sau ít phút hoặc sử dụng các từ đã lưu trong Database.'
+        'Hệ thống đang xử lý quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.'
       );
     }
 
@@ -110,8 +120,8 @@ export async function analyzeText({ text, mode, sourceLanguage, targetLanguage }
   if (
     data &&
     data.message &&
-    data.dictionary === undefined &&
-    data.grammar === undefined
+    data.dictionary == null &&
+    data.grammar == null
   ) {
     throw new Error(data.message);
   }
@@ -132,17 +142,22 @@ export async function saveWord({
 
   const baseUrl = normalizeBaseUrl();
 
-  const response = await fetch(`${baseUrl}/api/dictionary/save`, {
-    method: 'POST',
-    headers: buildJsonHeaders(),
-    body: JSON.stringify({
-      type,
-      sourceLanguage,
-      targetLanguage,
-      searchKeyword,
-      dictionary,
-    }),
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/dictionary/save`, {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      body: JSON.stringify({
+        type,
+        sourceLanguage,
+        targetLanguage,
+        searchKeyword,
+        dictionary,
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ (${baseUrl}). Chi tiết: ${err.message}`);
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
@@ -159,4 +174,28 @@ export async function saveWord({
   }
 
   return response.json();
+}
+
+export async function recognizeImage(base64Image) {
+  let response;
+  try {
+    response = await fetch('/api/vision', {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      body: JSON.stringify({
+        image: base64Image,
+        prompt: "Trích xuất văn bản từ hình ảnh này và chỉ trả về văn bản đó. Không thêm bình luận hay giải thích nào khác."
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ AI (Vision). Chi tiết: ${err.message}`);
+  }
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Lỗi nhận dạng ảnh: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.text;
 }

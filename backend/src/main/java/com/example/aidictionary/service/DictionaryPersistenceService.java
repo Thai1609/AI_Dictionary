@@ -368,7 +368,7 @@ public class DictionaryPersistenceService {
         entry.setReading(dictionary.getReading());
         entry.setPartOfSpeech(dictionary.getPartOfSpeech());
         entry.setNote(dictionary.getNote());
-        entry.setTranslationsJson(toJson(dictionary.getTranslations()));
+        entry.setTranslationsJson(toJson(dictionary.getTranslationGroups()));
         entry.setRecommendationJson(toJson(dictionary.getRecommendation()));
         entry.setSearchKeyword(searchKeyword);
         entry.setNormalizedSearchKeyword(normalizeForSearch(searchKeyword));
@@ -397,8 +397,8 @@ public class DictionaryPersistenceService {
         entry.setPartOfSpeech(dictionary.getPartOfSpeech());
         entry.setNote(dictionary.getNote());
 
-        if (dictionary.getTranslations() != null) {
-            entry.setTranslationsJson(toJson(dictionary.getTranslations()));
+        if (dictionary.getTranslationGroups() != null) {
+            entry.setTranslationsJson(toJson(dictionary.getTranslationGroups()));
         }
         if (dictionary.getRecommendation() != null) {
             entry.setRecommendationJson(toJson(dictionary.getRecommendation()));
@@ -488,27 +488,42 @@ public class DictionaryPersistenceService {
         });
         entry.getRelatedWords().forEach(value -> append(builder, value.getRelatedWord()));
 
-        List<DictionaryResponse.TranslationOption> translations =
-                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationOption.class);
-        translations.forEach(item -> {
-            if (item == null) {
+        List<DictionaryResponse.TranslationGroup> groups =
+                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationGroup.class);
+        groups.forEach(group -> {
+            if (group == null) {
                 return;
             }
-            append(builder, item.getWord());
-            append(builder, item.getPronunciation());
-            append(builder, item.getReading());
-            append(builder, item.getPartOfSpeech());
-            append(builder, item.getMeaning());
-            append(builder, item.getUsage());
-            if (item.getExamples() != null) {
-                item.getExamples().forEach(example -> {
-                    if (example != null) {
-                        append(builder, example.getSentence());
-                        append(builder, example.getReading());
-                        append(builder, example.getTranslation());
-                    }
-                });
+            append(builder, group.getPartOfSpeech());
+            if (group.getItems() == null) {
+                return;
             }
+            group.getItems().forEach(item -> {
+                if (item == null) {
+                    return;
+                }
+                append(builder, item.getWord());
+                append(builder, item.getPronunciation());
+                append(builder, item.getReading());
+                append(builder, item.getPartOfSpeech());
+                append(builder, item.getUsage());
+                append(builder, item.getNote());
+                if (item.getMeanings() != null) {
+                    item.getMeanings().forEach(value -> append(builder, value));
+                }
+                if (item.getRelatedWords() != null) {
+                    item.getRelatedWords().forEach(value -> append(builder, value));
+                }
+                if (item.getExamples() != null) {
+                    item.getExamples().forEach(example -> {
+                        if (example != null) {
+                            append(builder, example.getSentence());
+                            append(builder, example.getReading());
+                            append(builder, example.getTranslation());
+                        }
+                    });
+                }
+            });
         });
 
         return normalizeForSearch(builder.toString());
@@ -548,8 +563,8 @@ public class DictionaryPersistenceService {
                 .map(DictionaryRelatedWord::getRelatedWord)
                 .toList());
 
-        response.setTranslations(
-                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationOption.class)
+        response.setTranslationGroups(
+                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationGroup.class)
         );
         response.setRecommendation(
                 fromJson(entry.getRecommendationJson(), DictionaryResponse.Recommendation.class)

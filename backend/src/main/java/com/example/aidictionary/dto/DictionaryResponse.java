@@ -25,11 +25,8 @@ public class DictionaryResponse {
     private List<GrammarPointItem> grammarPoints;
     private List<String> relatedWords;
 
-    /**
-     * Danh sách các cách dịch khác nhau theo ngữ cảnh.
-     * Ví dụ từ "bảo vệ" có thể trả về 保安, 保衛, 保護...
-     */
-    private List<TranslationOption> translations;
+    /** Các bản dịch được nhóm theo loại từ. */
+    private List<TranslationGroup> translationGroups;
 
     /** Từ được đề xuất dùng mặc định và lý do chọn. */
     private Recommendation recommendation;
@@ -46,20 +43,30 @@ public class DictionaryResponse {
 
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class TranslationGroup {
+        private String partOfSpeech;
+        private List<TranslationOption> items;
+    }
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TranslationOption {
         private String word;
         private String pronunciation;
         private String reading;
         private String partOfSpeech;
-        private String meaning;
+        private List<String> meanings;
         private String usage;
         private List<ExampleItem> examples;
+        private List<String> relatedWords;
+        private String note;
     }
 
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Recommendation {
         private String defaultWord;
+        private String partOfSpeech;
         private String reason;
     }
 

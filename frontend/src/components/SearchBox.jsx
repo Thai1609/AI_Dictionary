@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Loader2, PenTool } from 'lucide-react';
+import { Search, Loader2, PenTool, Image as ImageIcon } from 'lucide-react';
 import HandwritingPad from './HandwritingPad';
+import { recognizeImage } from '../api/dictionaryApi';
 
 export default function SearchBox({
   text,
@@ -10,7 +11,9 @@ export default function SearchBox({
   mode
 }) {
   const [showPad, setShowPad] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const wrapperRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const getPlaceholder = () => {
     switch (mode) {
@@ -35,7 +38,7 @@ export default function SearchBox({
     // Submit on Enter without shift key
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (text.trim() && !loading) {
+      if (text.trim() && !loading && !imageLoading) {
         onSubmit();
       }
     }
@@ -43,6 +46,45 @@ export default function SearchBox({
 
   const handleSelectChar = (char) => {
     setText((prev) => prev + char);
+  };
+
+  const handleImageUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Vui lòng chọn một tệp hình ảnh.');
+      return;
+    }
+
+    try {
+      setImageLoading(true);
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = async () => {
+        try {
+          const base64Image = reader.result;
+          const extractedText = await recognizeImage(base64Image);
+          if (extractedText) {
+            setText(extractedText.trim());
+          }
+        } catch (err) {
+          alert(err.message || 'Lỗi khi nhận dạng hình ảnh.');
+        } finally {
+          setImageLoading(false);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+          }
+        }
+      };
+      reader.onerror = () => {
+        alert('Lỗi đọc tệp hình ảnh.');
+        setImageLoading(false);
+      };
+    } catch (err) {
+      console.error(err);
+      setImageLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -76,6 +118,34 @@ export default function SearchBox({
           />
           
           <div style={{ position: 'absolute', bottom: '8px', right: '8px', display: 'flex', gap: '8px' }}>
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: 'none' }}
+              ref={fileInputRef}
+              onChange={handleImageUpload}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={imageLoading || loading}
+              style={{
+                background: 'transparent',
+                color: 'var(--color-text-light)',
+                border: 'none',
+                cursor: (imageLoading || loading) ? 'not-allowed' : 'pointer',
+                padding: '6px',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+                opacity: (imageLoading || loading) ? 0.5 : 1
+              }}
+              title="Dịch bằng hình ảnh"
+            >
+              {imageLoading ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
+            </button>
             <button
               type="button"
               onClick={() => setShowPad(!showPad)}

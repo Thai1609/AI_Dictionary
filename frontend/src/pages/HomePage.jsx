@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from '../components/Header';
 import ModeTabs from '../components/ModeTabs';
 import LanguageSelector from '../components/LanguageSelector';
 import SearchBox from '../components/SearchBox';
 import ResultCard from '../components/ResultCard';
-import { analyzeText, searchDictionary } from '../api/dictionaryApi';
+import { analyzeText, searchDictionary, checkHealth } from '../api/dictionaryApi';
 import { getApiBaseUrl } from '../config/apiConfig';
 import { AlertCircle, RefreshCw, HelpCircle, BookOpen, Layers } from 'lucide-react';
 
@@ -14,9 +14,17 @@ export default function HomePage() {
   const [sourceLanguage, setSourceLanguage] = useState('zh');
   const [targetLanguage, setTargetLanguage] = useState('vi');
   const [loading, setLoading] = useState(false);
+  const [longLoading, setLongLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    // Wake up the backend on initial load
+    checkHealth().catch(() => {
+      // Ignore initial health check errors
+    });
+  }, []);
 
   const handleAnalyze = async () => {
     if (!text.trim()) {
@@ -29,9 +37,15 @@ export default function HomePage() {
     }
 
     setLoading(true);
+    setLongLoading(false);
     setError('');
     setResult(null);
     setSearchResults(null);
+
+    // If it takes more than 5 seconds, it's likely a cold start
+    const timer = setTimeout(() => {
+      setLongLoading(true);
+    }, 5000);
 
     try {
       if (mode === 'search') {
@@ -64,7 +78,9 @@ export default function HomePage() {
         setError(err.message || `Lỗi không xác định khi kết nối đến máy chủ (${currentUrl}).`);
       }
     } finally {
+      clearTimeout(timer);
       setLoading(false);
+      setLongLoading(false);
     }
   };
 
@@ -159,7 +175,13 @@ export default function HomePage() {
             <div className="loading-card" id="loading-indicator">
               <RefreshCw size={36} className="animate-spin loading-spinner" />
               <p className="loading-text">Đang phân tích dữ liệu qua AI...</p>
-              <span className="loading-subtext">Hệ thống đang kết hợp Spring Boot & PostgreSQL</span>
+              {longLoading ? (
+                <span className="loading-subtext" style={{ color: '#d97706', marginTop: '0.5rem', display: 'block', maxWidth: '350px', textAlign: 'center' }}>
+                  Máy chủ đang khởi động lại sau thời gian ngủ (có thể mất 30-50s). Vui lòng không đóng trang...
+                </span>
+              ) : (
+                <span className="loading-subtext">Hệ thống đang kết hợp Spring Boot & PostgreSQL</span>
+              )}
             </div>
           )}
 

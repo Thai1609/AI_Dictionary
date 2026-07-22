@@ -57,10 +57,19 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
       meanings = [],
       examples = [],
       relatedWords = [],
-      note
+      note,
+      recommendation
     } = dictionarySource;
 
+    const translationGroups = (dictionarySource?.translationGroups ?? [])
+      .map((group) => ({
+        ...group,
+        items: (group.items ?? []).filter((item) => Boolean(item?.word)),
+      }))
+      .filter((group) => group.items.length > 0);
+
     const finalWord = word || result?.text || 'N/A';
+    const displayPronunciation = pronunciation || reading;
 
     return (
       <div className="result-card word-result" id="result-card-word">
@@ -71,12 +80,12 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
               <span className="part-of-speech-badge">Từ loại: {partOfSpeech}</span>
             )}
           </div>
-          {dictionarySource?.pronunciation && (
+          {displayPronunciation && (
             <div className="pronunciation-row">
               <span className="pronunciation-label" style={{ fontWeight: 600, marginRight: '0.5rem', color: 'var(--color-text-light)' }}>
                 {sourceLanguage === 'zh' ? 'Pinyin:' : 'Phiên âm:'}
               </span>
-              <span className="pronunciation-text">{dictionarySource.pronunciation}</span>
+              <span className="pronunciation-text">{displayPronunciation}</span>
             </div>
           )}
         </div>
@@ -148,6 +157,72 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
                 Ghi chú
               </h3>
               <p className="note-text">{note}</p>
+            </div>
+          )}
+
+          {/* Recommendation */}
+          {recommendation && recommendation.defaultWord && (
+            <div className="result-section recommendation-section" style={{ backgroundColor: 'var(--color-bg-hover)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-primary)', marginTop: '1rem' }}>
+              <h3 className="section-title" style={{ color: 'var(--color-primary)' }}>
+                <Lightbulb size={16} className="section-icon" />
+                Đề xuất
+              </h3>
+              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>
+                Từ thông dụng: {recommendation.defaultWord} {recommendation.partOfSpeech ? `(${recommendation.partOfSpeech})` : ''}
+              </p>
+              {recommendation.reason && <p style={{ margin: 0, fontSize: '0.95rem' }}>{recommendation.reason}</p>}
+            </div>
+          )}
+
+          {/* Translation Groups */}
+          {translationGroups.length > 0 && (
+            <div className="translation-groups" style={{ marginTop: '2rem' }}>
+              <h3 className="section-title" style={{ fontSize: '1.2rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem', marginBottom: '1rem' }}>Các nghĩa/từ khác theo phân loại</h3>
+              {translationGroups.map((group, groupIndex) => (
+                <div key={groupIndex} className="translation-group" style={{ marginBottom: '1.5rem' }}>
+                  {group.partOfSpeech && (
+                    <h4 style={{ fontSize: '1.1rem', color: 'var(--color-primary)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <Hash size={14} /> {group.partOfSpeech}
+                    </h4>
+                  )}
+                  <div className="group-items" style={{ display: 'grid', gap: '1rem' }}>
+                    {group.items.map((item, itemIndex) => (
+                      <div key={itemIndex} className="translation-item-card" style={{ padding: '1rem', border: '1px solid var(--color-border)', borderRadius: '8px', backgroundColor: 'var(--color-bg)' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--color-text)' }}>{item.word}</span>
+                          {(item.pronunciation || item.reading) && <span style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>[{item.pronunciation || item.reading}]</span>}
+                        </div>
+                        {item.meanings && item.meanings.length > 0 && (
+                          <p style={{ marginBottom: '0.5rem', fontSize: '0.95rem', color: 'var(--color-text)' }}><strong>Nghĩa:</strong> {item.meanings.join(', ')}</p>
+                        )}
+                        {item.usage && (
+                          <p style={{ marginBottom: '0.5rem', fontSize: '0.9rem', fontStyle: 'italic', color: 'var(--color-text-light)' }}>Cách dùng: {item.usage}</p>
+                        )}
+                        {item.examples && item.examples.length > 0 && (
+                          <div style={{ marginTop: '0.75rem', paddingLeft: '0.75rem', borderLeft: '2px solid var(--color-primary)' }}>
+                            {item.examples.map((ex, exIndex) => (
+                              <div key={exIndex} style={{ marginBottom: exIndex < item.examples.length - 1 ? '0.75rem' : 0 }}>
+                                <p style={{ margin: 0, fontSize: '0.95rem', color: 'var(--color-text)' }}>{ex.sentence}</p>
+                                {ex.reading && <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-primary)' }}>{ex.reading}</p>}
+                                {ex.translation && <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-text-light)' }}>{ex.translation}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {item.relatedWords && item.relatedWords.length > 0 && (
+                          <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.9rem', color: 'var(--color-text)' }}><strong>Liên quan:</strong> {item.relatedWords.join(', ')}</p>
+                        )}
+                        {item.note && (
+                          <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.9rem', backgroundColor: 'rgba(255,193,7,0.1)', color: 'var(--color-text)', padding: '0.5rem', borderRadius: '4px' }}>
+                            <Info size={14} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'text-bottom' }} />
+                            {item.note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -217,25 +217,33 @@ public class AiService {
                       }
                     ],
                     "relatedWords": [""],
-                    "translations": [
+                    "translationGroups": [
                       {
-                        "word": "",
-                        "pronunciation": "",
-                        "reading": "",
                         "partOfSpeech": "",
-                        "meaning": "",
-                        "usage": "",
-                        "examples": [
+                        "items": [
                           {
-                            "sentence": "",
+                            "word": "",
+                            "pronunciation": "",
                             "reading": "",
-                            "translation": ""
+                            "partOfSpeech": "",
+                            "meanings": [""],
+                            "usage": "",
+                            "examples": [
+                              {
+                                "sentence": "",
+                                "reading": "",
+                                "translation": ""
+                              }
+                            ],
+                            "relatedWords": [""],
+                            "note": ""
                           }
                         ]
                       }
                     ],
                     "recommendation": {
                       "defaultWord": "",
+                      "partOfSpeech": "",
                       "reason": ""
                     },
                     "note": ""
@@ -245,28 +253,31 @@ public class AiService {
 
                 Quy tắc bắt buộc:
                 - Chỉ xử lý tiếng Việt và tiếng Trung.
-                - Nếu một từ nguồn có nhiều cách dịch tiếng Trung thông dụng, phải trả về tất cả cách dịch quan trọng trong translations.
+                - Một từ hoặc cụm từ nguồn có thể có nhiều cách dịch tiếng Trung theo ngữ cảnh.
+                - Phải liệt kê các cách dịch thông dụng trong translationGroups và nhóm theo loại từ như danh từ, động từ, tính từ hoặc phó từ.
+                - Không tạo nhóm rỗng và không tạo loại từ không có cách dịch phù hợp.
+                - Mỗi item phải giữ đầy đủ cấu trúc: word, pronunciation, reading, partOfSpeech, meanings, usage, examples, relatedWords và note.
                 - Không gộp các từ khác ngữ cảnh thành một nghĩa duy nhất.
-                - Mỗi translation phải giải thích rõ nghĩa và hoàn cảnh sử dụng bằng tiếng Việt.
                 - Với bản dịch tiếng Trung, word dùng chữ Hán phồn thể; pronunciation và reading dùng pinyin có dấu thanh.
-                - translations nên có từ 1 đến 5 lựa chọn thông dụng, sắp xếp từ phù hợp/phổ biến nhất đến ít phổ biến hơn.
-                - dictionary.word phải bằng recommendation.defaultWord và là lựa chọn mặc định phù hợp nhất.
-                - dictionary.pronunciation, reading, partOfSpeech, meanings và examples mô tả từ mặc định.
                 - partOfSpeech ghi bằng tiếng Việt.
+                - meanings là danh sách nghĩa tiếng Việt của riêng từ đó.
+                - usage giải thích rõ hoàn cảnh sử dụng và điểm khác biệt với các từ gần nghĩa.
                 - examples phải gần đời sống, học tập hoặc công việc.
                 - examples[].sentence là tiếng Trung nếu từ đích là tiếng Trung.
                 - examples[].reading là pinyin đầy đủ có dấu thanh.
                 - examples[].translation là bản dịch tiếng Việt tự nhiên.
-                - relatedWords có thể gồm chữ Hán + pinyin + nghĩa tiếng Việt.
-                - note nêu khác biệt dễ nhầm hoặc mẹo sử dụng.
+                - dictionary.word phải bằng recommendation.defaultWord và là lựa chọn mặc định phù hợp nhất.
+                - dictionary.pronunciation, reading, partOfSpeech, meanings, examples, relatedWords và note phải mô tả từ mặc định.
+                - recommendation.partOfSpeech phải khớp với loại từ của defaultWord.
 
-                Ví dụ về nguyên tắc phân biệt:
-                - "bảo vệ" có thể gồm 保安 (nhân viên bảo vệ), 保衛 (bảo vệ/phòng vệ quốc gia), 保護 (giữ khỏi bị tổn hại).
-                - Không được chỉ trả về 保護 nếu các nghĩa còn lại phù hợp và thông dụng.
+                Ví dụ bắt buộc về cách phân loại từ "bảo vệ":
+                - Danh từ có thể gồm 保安, 警衛 nếu phù hợp ngữ cảnh.
+                - Động từ có thể gồm 保護, 保衛, 守護 nếu phù hợp ngữ cảnh.
+                - Không được chỉ trả về 保護 khi các từ khác vẫn thông dụng và mang nghĩa khác nhau.
 
                 Nếu nguồn là tiếng Trung và đích là tiếng Việt:
                 - dictionary.word là bản dịch tiếng Việt mặc định.
-                - translations liệt kê các nghĩa tiếng Việt khác nhau theo ngữ cảnh.
+                - translationGroups vẫn nhóm các nghĩa tiếng Việt theo loại từ.
                 - pronunciation và reading có thể dùng pinyin của từ tiếng Trung gốc.
 
                 Nếu nguồn và đích cùng ngôn ngữ:

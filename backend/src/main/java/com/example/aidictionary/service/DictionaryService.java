@@ -149,8 +149,11 @@ public class DictionaryService {
                 );
             }
 
-            boolean hasTranslations = dictionary.getTranslations() != null
-                    && !dictionary.getTranslations().isEmpty();
+            boolean hasTranslationGroups = dictionary.getTranslationGroups() != null
+                    && dictionary.getTranslationGroups().stream()
+                    .filter(group -> group != null && group.getItems() != null)
+                    .flatMap(group -> group.getItems().stream())
+                    .anyMatch(item -> item != null && !isBlank(item.getWord()));
 
             if (isBlank(dictionary.getWord())
                     && dictionary.getRecommendation() != null
@@ -158,8 +161,10 @@ public class DictionaryService {
                 dictionary.setWord(dictionary.getRecommendation().getDefaultWord().trim());
             }
 
-            if (isBlank(dictionary.getWord()) && hasTranslations) {
-                dictionary.getTranslations().stream()
+            if (isBlank(dictionary.getWord()) && hasTranslationGroups) {
+                dictionary.getTranslationGroups().stream()
+                        .filter(group -> group != null && group.getItems() != null)
+                        .flatMap(group -> group.getItems().stream())
                         .filter(item -> item != null && !isBlank(item.getWord()))
                         .findFirst()
                         .ifPresent(item -> dictionary.setWord(item.getWord().trim()));
@@ -251,10 +256,29 @@ public class DictionaryService {
     }
 
     private String detectMode(String mode, String text) {
-        if (!isBlank(mode)) {
-            return mode.trim().toLowerCase();
+        if (!isBlank(mode) && !"auto".equalsIgnoreCase(mode.trim())) {
+            String normalizedMode = mode.trim().toLowerCase();
+            if (!List.of("word", "sentence", "grammar").contains(normalizedMode)) {
+                throw new BadRequestException("Mode không hợp lệ: " + mode);
+            }
+            return normalizedMode;
         }
-        return text.trim().split("\\s+").length == 1 ? "word" : "sentence";
+
+        String cleanText = text == null ? "" : text.trim();
+        if (cleanText.isEmpty()) {
+            return "word";
+        }
+
+        if (cleanText.matches(".*[.!?。！？；;].*")) {
+            return "sentence";
+        }
+
+        String[] tokens = cleanText.split("\\s+");
+        if (tokens.length <= 4 && cleanText.length() <= 40) {
+            return "word";
+        }
+
+        return "sentence";
     }
 
     private String defaultLanguage(String language, String defaultValue) {
