@@ -65,6 +65,12 @@ public class DictionaryEntry {
     @Column(name = "note", columnDefinition = "TEXT")
     private String note;
 
+    @Column(name = "translations_json", columnDefinition = "TEXT")
+    private String translationsJson;
+
+    @Column(name = "recommendation_json", columnDefinition = "TEXT")
+    private String recommendationJson;
+
     @Column(name = "search_keyword", length = 500)
     private String searchKeyword;
 

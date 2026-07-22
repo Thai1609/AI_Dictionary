@@ -17,7 +17,9 @@ import com.example.aidictionary.exception.ResourceNotFoundException;
 import com.example.aidictionary.repository.DictionaryEntryRepository;
 import com.example.aidictionary.repository.GrammarCheckRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -40,7 +42,15 @@ public class DictionaryPersistenceService {
 
     private final DictionaryEntryRepository dictionaryEntryRepository;
     private final GrammarCheckRepository grammarCheckRepository;
-    private final ObjectMapper objectMapper;
+
+    /**
+     * Tự khởi tạo ObjectMapper để service không phụ thuộc vào bean Jackson
+     * do Spring quản lý. Lombok không đưa field đã khởi tạo này vào constructor.
+     */
+    private final ObjectMapper objectMapper = JsonMapper.builder()
+            .findAndAddModules()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
     @Transactional(readOnly = true)
     public Optional<DictionaryResponse> findExistingWord(
@@ -168,6 +178,30 @@ public class DictionaryPersistenceService {
                     );
 
             for (Long id : containsIds) {
+                if (rankedIds.size() >= MAX_SEARCH_RESULTS) {
+                    break;
+                }
+                rankedIds.add(id);
+            }
+        }
+
+        // Fuzzy fallback: bat loi go sai nhe, vi du "ninhao" / "nihap".
+        // Chi chay voi keyword >= 3 ky tu de tranh ket qua nhieu va kem chinh xac.
+        if (rankedIds.size() < MAX_SEARCH_RESULTS && normalizedKeyword.length() >= 3) {
+            int remaining = MAX_SEARCH_RESULTS - rankedIds.size();
+            List<Long> fuzzyIds = filterByLanguage
+                    ? dictionaryEntryRepository.searchFuzzyIdsByLanguage(
+                            normalizedKeyword,
+                            finalSourceLanguage,
+                            finalTargetLanguage,
+                            remaining
+                    )
+                    : dictionaryEntryRepository.searchFuzzyIds(
+                            normalizedKeyword,
+                            remaining
+                    );
+
+            for (Long id : fuzzyIds) {
                 if (rankedIds.size() >= MAX_SEARCH_RESULTS) {
                     break;
                 }
@@ -334,6 +368,8 @@ public class DictionaryPersistenceService {
         entry.setReading(dictionary.getReading());
         entry.setPartOfSpeech(dictionary.getPartOfSpeech());
         entry.setNote(dictionary.getNote());
+        entry.setTranslationsJson(toJson(dictionary.getTranslations()));
+        entry.setRecommendationJson(toJson(dictionary.getRecommendation()));
         entry.setSearchKeyword(searchKeyword);
         entry.setNormalizedSearchKeyword(normalizeForSearch(searchKeyword));
 
@@ -360,6 +396,13 @@ public class DictionaryPersistenceService {
         entry.setReading(dictionary.getReading());
         entry.setPartOfSpeech(dictionary.getPartOfSpeech());
         entry.setNote(dictionary.getNote());
+
+        if (dictionary.getTranslations() != null) {
+            entry.setTranslationsJson(toJson(dictionary.getTranslations()));
+        }
+        if (dictionary.getRecommendation() != null) {
+            entry.setRecommendationJson(toJson(dictionary.getRecommendation()));
+        }
 
         if (dictionary.getMeanings() != null) {
             replaceMeanings(entry, dictionary.getMeanings());
@@ -434,6 +477,40 @@ public class DictionaryPersistenceService {
         append(builder, entry.getNormalizedWord());
         append(builder, entry.getPronunciation());
         append(builder, entry.getReading());
+        append(builder, entry.getPartOfSpeech());
+        append(builder, entry.getNote());
+
+        entry.getMeanings().forEach(value -> append(builder, value.getMeaning()));
+        entry.getExamples().forEach(value -> {
+            append(builder, value.getExampleSentence());
+            append(builder, value.getExampleReading());
+            append(builder, value.getExampleTranslation());
+        });
+        entry.getRelatedWords().forEach(value -> append(builder, value.getRelatedWord()));
+
+        List<DictionaryResponse.TranslationOption> translations =
+                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationOption.class);
+        translations.forEach(item -> {
+            if (item == null) {
+                return;
+            }
+            append(builder, item.getWord());
+            append(builder, item.getPronunciation());
+            append(builder, item.getReading());
+            append(builder, item.getPartOfSpeech());
+            append(builder, item.getMeaning());
+            append(builder, item.getUsage());
+            if (item.getExamples() != null) {
+                item.getExamples().forEach(example -> {
+                    if (example != null) {
+                        append(builder, example.getSentence());
+                        append(builder, example.getReading());
+                        append(builder, example.getTranslation());
+                    }
+                });
+            }
+        });
+
         return normalizeForSearch(builder.toString());
     }
 
@@ -470,6 +547,13 @@ public class DictionaryPersistenceService {
                 .filter(value -> value != null && !isBlank(value.getRelatedWord()))
                 .map(DictionaryRelatedWord::getRelatedWord)
                 .toList());
+
+        response.setTranslations(
+                fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationOption.class)
+        );
+        response.setRecommendation(
+                fromJson(entry.getRecommendationJson(), DictionaryResponse.Recommendation.class)
+        );
         return response;
     }
 
@@ -487,6 +571,42 @@ public class DictionaryPersistenceService {
                 check.getResultJson(),
                 check.getCreatedAt()
         );
+    }
+
+    private String toJson(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            return null;
+        }
+    }
+
+    private <T> T fromJson(String json, Class<T> valueType) {
+        if (isBlank(json)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, valueType);
+        } catch (JsonProcessingException exception) {
+            return null;
+        }
+    }
+
+    private <T> List<T> fromJsonList(String json, Class<T> elementType) {
+        if (isBlank(json)) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(
+                    json,
+                    objectMapper.getTypeFactory().constructCollectionType(List.class, elementType)
+            );
+        } catch (JsonProcessingException exception) {
+            return List.of();
+        }
     }
 
     private String toJson(GrammarResponse grammar) {

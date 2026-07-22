@@ -145,4 +145,54 @@ public interface DictionaryEntryRepository extends JpaRepository<DictionaryEntry
             @Param("targetLanguage") String targetLanguage,
             @Param("limit") int limit
     );
+    /*
+     * Buoc 3: fuzzy fallback bang pg_trgm. Chi goi khi exact/prefix/contains chua du ket qua.
+     * word_similarity phu hop hon similarity khi search_text la chuoi dai.
+     */
+    @Query(value = """
+            SELECT de.id
+            FROM dictionary_entries de
+            WHERE :normalizedKeyword <% de.search_text
+               OR de.normalized_word % :normalizedKeyword
+               OR de.normalized_search_keyword % :normalizedKeyword
+            ORDER BY
+                GREATEST(
+                    similarity(COALESCE(de.normalized_word, ''), :normalizedKeyword),
+                    similarity(COALESCE(de.normalized_search_keyword, ''), :normalizedKeyword),
+                    word_similarity(:normalizedKeyword, COALESCE(de.search_text, ''))
+                ) DESC,
+                de.id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> searchFuzzyIds(
+            @Param("normalizedKeyword") String normalizedKeyword,
+            @Param("limit") int limit
+    );
+
+    @Query(value = """
+            SELECT de.id
+            FROM dictionary_entries de
+            WHERE de.source_language = :sourceLanguage
+              AND de.target_language = :targetLanguage
+              AND (
+                    :normalizedKeyword <% de.search_text
+                 OR de.normalized_word % :normalizedKeyword
+                 OR de.normalized_search_keyword % :normalizedKeyword
+              )
+            ORDER BY
+                GREATEST(
+                    similarity(COALESCE(de.normalized_word, ''), :normalizedKeyword),
+                    similarity(COALESCE(de.normalized_search_keyword, ''), :normalizedKeyword),
+                    word_similarity(:normalizedKeyword, COALESCE(de.search_text, ''))
+                ) DESC,
+                de.id DESC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<Long> searchFuzzyIdsByLanguage(
+            @Param("normalizedKeyword") String normalizedKeyword,
+            @Param("sourceLanguage") String sourceLanguage,
+            @Param("targetLanguage") String targetLanguage,
+            @Param("limit") int limit
+    );
+
 }

@@ -191,17 +191,16 @@ public class AiService {
 
     private String buildWordPrompt(String word, String sourceLanguage, String targetLanguage) {
         return """
-                Bạn là AI Dictionary dành cho người học tiếng Việt và tiếng Trung.
+                Bạn là chuyên gia từ điển tiếng Việt - tiếng Trung dành cho người Việt học tiếng Trung.
 
-                Hãy phân tích từ sau:
-                - Từ người dùng nhập: "%s"
-                - Ngôn ngữ người dùng nhập: "%s"
-                - Ngôn ngữ muốn trả về/học: "%s"
+                Hãy phân tích từ hoặc cụm từ sau:
+                - Nội dung người dùng nhập: "%s"
+                - Ngôn ngữ nguồn: "%s"
+                - Ngôn ngữ đích: "%s"
 
-                Chỉ trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.
+                Chỉ trả về một JSON hợp lệ. Không dùng markdown và không viết nội dung ngoài JSON.
 
                 Format JSON bắt buộc:
-
                 {
                   "type": "word",
                   "dictionary": {
@@ -209,9 +208,7 @@ public class AiService {
                     "pronunciation": "",
                     "reading": "",
                     "partOfSpeech": "",
-                    "meanings": [
-                      ""
-                    ],
+                    "meanings": [""],
                     "examples": [
                       {
                         "sentence": "",
@@ -219,75 +216,61 @@ public class AiService {
                         "translation": ""
                       }
                     ],
-                    "relatedWords": [
-                      ""
+                    "relatedWords": [""],
+                    "translations": [
+                      {
+                        "word": "",
+                        "pronunciation": "",
+                        "reading": "",
+                        "partOfSpeech": "",
+                        "meaning": "",
+                        "usage": "",
+                        "examples": [
+                          {
+                            "sentence": "",
+                            "reading": "",
+                            "translation": ""
+                          }
+                        ]
+                      }
                     ],
+                    "recommendation": {
+                      "defaultWord": "",
+                      "reason": ""
+                    },
                     "note": ""
                   },
                   "message": ""
                 }
 
-                Quy tắc chung:
-                - Chỉ xử lý 2 ngôn ngữ: tiếng Việt và tiếng Trung.
-                - meanings luôn giải thích bằng tiếng Việt, dễ hiểu cho người Việt.
-                - partOfSpeech ghi bằng tiếng Việt, ví dụ: danh từ, động từ, tính từ, cụm danh từ.
-                - examples phải thực tế, gần đời sống, học tập, công việc hoặc giao tiếp hằng ngày.
-                - note viết bằng tiếng Việt, gồm mẹo học, cách dùng, lỗi thường gặp hoặc từ dễ nhầm.
-                - Nếu có nhiều nghĩa, trả về 2 đến 5 nghĩa phổ biến nhất.
+                Quy tắc bắt buộc:
+                - Chỉ xử lý tiếng Việt và tiếng Trung.
+                - Nếu một từ nguồn có nhiều cách dịch tiếng Trung thông dụng, phải trả về tất cả cách dịch quan trọng trong translations.
+                - Không gộp các từ khác ngữ cảnh thành một nghĩa duy nhất.
+                - Mỗi translation phải giải thích rõ nghĩa và hoàn cảnh sử dụng bằng tiếng Việt.
+                - Với bản dịch tiếng Trung, word dùng chữ Hán phồn thể; pronunciation và reading dùng pinyin có dấu thanh.
+                - translations nên có từ 1 đến 5 lựa chọn thông dụng, sắp xếp từ phù hợp/phổ biến nhất đến ít phổ biến hơn.
+                - dictionary.word phải bằng recommendation.defaultWord và là lựa chọn mặc định phù hợp nhất.
+                - dictionary.pronunciation, reading, partOfSpeech, meanings và examples mô tả từ mặc định.
+                - partOfSpeech ghi bằng tiếng Việt.
+                - examples phải gần đời sống, học tập hoặc công việc.
+                - examples[].sentence là tiếng Trung nếu từ đích là tiếng Trung.
+                - examples[].reading là pinyin đầy đủ có dấu thanh.
+                - examples[].translation là bản dịch tiếng Việt tự nhiên.
+                - relatedWords có thể gồm chữ Hán + pinyin + nghĩa tiếng Việt.
+                - note nêu khác biệt dễ nhầm hoặc mẹo sử dụng.
 
-                Trường hợp 1: sourceLanguage là vi hoặc tiếng Việt, targetLanguage là zh, zh-CN, Chinese hoặc tiếng Trung
-                - Người dùng nhập tiếng Việt và muốn học tiếng Trung.
-                - dictionary.word phải là chữ Hán tiếng Trung tương ứng.
-                - pronunciation phải là pinyin có dấu thanh.
-                - reading phải là pinyin có dấu thanh, có thể giống pronunciation.
-                - meanings giải thích nghĩa bằng tiếng Việt.
-                - examples[].sentence phải là câu tiếng Trung.
-                - examples[].reading phải là pinyin đầy đủ của câu tiếng Trung.
-                - examples[].translation phải là bản dịch tiếng Việt tự nhiên.
-                - relatedWords nên gồm: chữ Hán + pinyin + nghĩa tiếng Việt.
-                - Không được tạo examples[].sentence bằng tiếng Việt.
+                Ví dụ về nguyên tắc phân biệt:
+                - "bảo vệ" có thể gồm 保安 (nhân viên bảo vệ), 保衛 (bảo vệ/phòng vệ quốc gia), 保護 (giữ khỏi bị tổn hại).
+                - Không được chỉ trả về 保護 nếu các nghĩa còn lại phù hợp và thông dụng.
 
-                Ví dụ:
-                Nếu input là "trường học":
-                - dictionary.word: "学校"
-                - pronunciation: "xué xiào"
-                - reading: "xué xiào"
-                - examples[].sentence: "我每天去学校。"
-                - examples[].reading: "wǒ měi tiān qù xué xiào."
-                - examples[].translation: "Tôi đi đến trường mỗi ngày."
+                Nếu nguồn là tiếng Trung và đích là tiếng Việt:
+                - dictionary.word là bản dịch tiếng Việt mặc định.
+                - translations liệt kê các nghĩa tiếng Việt khác nhau theo ngữ cảnh.
+                - pronunciation và reading có thể dùng pinyin của từ tiếng Trung gốc.
 
-                Trường hợp 2: sourceLanguage là zh, zh-CN, Chinese hoặc tiếng Trung, targetLanguage là vi hoặc tiếng Việt
-                - Người dùng nhập tiếng Trung và muốn hiểu nghĩa tiếng Việt.
-                - dictionary.word phải là từ/cụm từ tiếng Việt tương ứng.
-                - pronunciation để trống.
-                - reading để trống.
-                - meanings giải thích nghĩa bằng tiếng Việt.
-                - examples[].sentence phải là câu ví dụ tiếng Việt.
-                - examples[].reading để trống.
-                - examples[].translation để trống hoặc null, vì không cần dịch tiếng Việt sang tiếng Việt.
-                - relatedWords nên là các từ tiếng Việt liên quan, đồng nghĩa, trái nghĩa hoặc cụm từ hay đi chung.
-                - Không cần pinyin trong trường hợp trả về tiếng Việt.
-
-                Ví dụ:
-                Nếu input là "学校":
-                - dictionary.word: "trường học"
-                - pronunciation: ""
-                - reading: ""
-                - examples[].sentence: "Tôi đi đến trường mỗi ngày."
-                - examples[].reading: ""
-                - examples[].translation: ""
-
-                Trường hợp 3: sourceLanguage và targetLanguage đều là vi hoặc đều là zh
-                - Nếu cả hai đều là tiếng Việt: phân tích từ tiếng Việt bằng tiếng Việt.
-                - Nếu cả hai đều là tiếng Trung: phân tích từ tiếng Trung, pronunciation và reading là pinyin, meanings giải thích bằng tiếng Việt.
-                - Với tiếng Trung, examples[].sentence phải là tiếng Trung, examples[].reading là pinyin, examples[].translation là tiếng Việt.
-
-                Yêu cầu chất lượng:
-                - Nếu trả về tiếng Trung, luôn có chữ Hán và pinyin có dấu thanh.
-                - Nếu trả về tiếng Việt, không cần pinyin.
-                - Không tự tạo cách đọc tiếng Việt sai dấu.
-                - Không đặt pinyin trong translation; pinyin phải nằm ở reading.
-                - translation chỉ dùng để dịch câu ví dụ sang tiếng Việt khi examples[].sentence là tiếng Trung.
+                Nếu nguồn và đích cùng ngôn ngữ:
+                - Vẫn phân tích nghĩa, từ loại, ví dụ và các cách dùng khác nhau.
                 """.formatted(word, sourceLanguage, targetLanguage);
     }
 

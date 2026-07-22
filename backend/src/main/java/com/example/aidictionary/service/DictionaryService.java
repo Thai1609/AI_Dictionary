@@ -141,10 +141,34 @@ public class DictionaryService {
                     sourceLanguage,
                     targetLanguage
             );
-            if (response.getDictionary() == null || isBlank(response.getDictionary().getWord())) {
+            DictionaryResponse dictionary = response.getDictionary();
+            if (dictionary == null) {
                 throw new GeminiServiceException(
                         HttpStatus.BAD_GATEWAY,
                         "Gemini không trả về dữ liệu từ điển hợp lệ."
+                );
+            }
+
+            boolean hasTranslations = dictionary.getTranslations() != null
+                    && !dictionary.getTranslations().isEmpty();
+
+            if (isBlank(dictionary.getWord())
+                    && dictionary.getRecommendation() != null
+                    && !isBlank(dictionary.getRecommendation().getDefaultWord())) {
+                dictionary.setWord(dictionary.getRecommendation().getDefaultWord().trim());
+            }
+
+            if (isBlank(dictionary.getWord()) && hasTranslations) {
+                dictionary.getTranslations().stream()
+                        .filter(item -> item != null && !isBlank(item.getWord()))
+                        .findFirst()
+                        .ifPresent(item -> dictionary.setWord(item.getWord().trim()));
+            }
+
+            if (isBlank(dictionary.getWord())) {
+                throw new GeminiServiceException(
+                        HttpStatus.BAD_GATEWAY,
+                        "Gemini không trả về từ mặc định hoặc danh sách bản dịch hợp lệ."
                 );
             }
 
