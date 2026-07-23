@@ -1,5 +1,5 @@
 export function getApiBaseUrl() {
-  // Return empty string to route requests to the local Express server,
-  // which will proxy them to the external Spring Boot backend via http-proxy-middleware.
-  return '';
+  // Nếu có cấu hình VITE_API_BASE_URL (ví dụ trên Vercel), sẽ dùng đường dẫn đó gọi thẳng tới backend.
+  // Ngược lại (chạy local ở AI Studio), trả về rỗng '' để gọi qua proxy của server.ts
+  return import.meta.env.VITE_API_BASE_URL || '';
 }
