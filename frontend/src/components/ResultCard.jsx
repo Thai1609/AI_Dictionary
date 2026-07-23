@@ -2,7 +2,7 @@ import React from 'react';
 import SaveButton from './SaveButton';
 import { BookOpen, Info, Hash, Play, Link, Lightbulb, MessageSquare } from 'lucide-react';
 
-export default function ResultCard({ result, sourceLanguage, targetLanguage, inputText, mode }) {
+export default function ResultCard({ result, sourceLanguage, targetLanguage, inputText, mode, hideSummary = false }) {
   if (!result) return null;
 
   // Helper function to extract data robustly from any backend structure
@@ -73,26 +73,28 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
 
     return (
       <div className="result-card word-result" id="result-card-word">
-        <div className="card-header">
-          <div className="word-title-row">
-            <h2 className="word-title">{finalWord}</h2>
-            {partOfSpeech && (
-              <span className="part-of-speech-badge">Từ loại: {partOfSpeech}</span>
+        {!hideSummary && (
+          <div className="card-header">
+            <div className="word-title-row">
+              <h2 className="word-title">{finalWord}</h2>
+              {partOfSpeech && (
+                <span className="part-of-speech-badge">Từ loại: {partOfSpeech}</span>
+              )}
+            </div>
+            {displayPronunciation && (
+              <div className="pronunciation-row">
+                <span className="pronunciation-label" style={{ fontWeight: 600, marginRight: '0.5rem', color: 'var(--color-text-light)' }}>
+                  {sourceLanguage === 'zh' ? 'Pinyin:' : 'Phiên âm:'}
+                </span>
+                <span className="pronunciation-text">{displayPronunciation}</span>
+              </div>
             )}
           </div>
-          {displayPronunciation && (
-            <div className="pronunciation-row">
-              <span className="pronunciation-label" style={{ fontWeight: 600, marginRight: '0.5rem', color: 'var(--color-text-light)' }}>
-                {sourceLanguage === 'zh' ? 'Pinyin:' : 'Phiên âm:'}
-              </span>
-              <span className="pronunciation-text">{displayPronunciation}</span>
-            </div>
-          )}
-        </div>
+        )}
 
         <div className="card-body">
           {/* Meanings */}
-          {meanings && meanings.length > 0 && (
+          {!hideSummary && meanings && meanings.length > 0 && (
             <div className="result-section">
               <h3 className="section-title">
                 <BookOpen size={16} className="section-icon" />
@@ -139,11 +141,15 @@ export default function ResultCard({ result, sourceLanguage, targetLanguage, inp
                 <Link size={16} className="section-icon" />
                 Từ liên quan
               </h3>
-              <div className="related-tags">
+              <div className="related-words-list" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {relatedWords.map((related, index) => (
-                  <span key={index} className="related-tag">
-                    {related}
-                  </span>
+                  <div key={index} style={{ padding: '0.75rem', backgroundColor: 'var(--color-bg)', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontWeight: '600', color: 'var(--color-primary)' }}>{typeof related === 'string' ? related : related.word}</span>
+                      {related.reading && <span style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>[{related.reading}]</span>}
+                    </div>
+                    {related.meaning && <div style={{ fontSize: '0.95rem', color: 'var(--color-text)', marginTop: '0.25rem' }}>{related.meaning}</div>}
+                  </div>
                 ))}
               </div>
             </div>

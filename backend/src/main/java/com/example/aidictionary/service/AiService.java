@@ -542,7 +542,13 @@ public class AiService {
 				        "translation": ""
 				      }
 				    ],
-				    "relatedWords": [""],
+				    "relatedWords": [
+				      {
+				        "word": "",
+				        "reading": "",
+				        "meaning": ""
+				      }
+				    ],
 				    "note": ""
 				  },
 				  "message": ""
@@ -557,8 +563,12 @@ public class AiService {
 				- examples[].sentence dùng tiếng Trung khi từ được chọn là tiếng Trung.
 				- examples[].reading là pinyin đầy đủ có dấu.
 				- examples[].translation là tiếng Việt tự nhiên.
+				- relatedWords gồm 4 đến 8 từ thực sự liên quan và hữu ích để học thêm.
+				- relatedWords[].word dùng chữ Hán phồn thể.
+				- relatedWords[].reading là pinyin có dấu của relatedWords[].word.
+				- relatedWords[].meaning là nghĩa tiếng Việt ngắn gọn, đúng ngữ cảnh.
 				- relatedWords không được chứa từ được chọn hoặc từ khóa ban đầu.
-				- Không lặp từ trong relatedWords; nếu không có thì trả mảng rỗng [].
+				- Không lặp relatedWords[].word; nếu không có thì trả mảng rỗng [].
 				""".formatted(
 				selectedWord,
 				originalQuery,

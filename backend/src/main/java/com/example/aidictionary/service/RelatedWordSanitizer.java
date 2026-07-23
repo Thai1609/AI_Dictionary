@@ -37,7 +37,7 @@ final class RelatedWordSanitizer {
             );
         }
 
-        dictionary.setRelatedWords(filterRelatedWords(
+        dictionary.setRelatedWords(filterRelatedWordItems(
                 dictionary.getRelatedWords(),
                 commonExclusions
         ));
@@ -83,7 +83,7 @@ final class RelatedWordSanitizer {
 
                 Set<String> itemExclusions = new HashSet<>(commonExclusions);
                 itemExclusions.add(normalizedItemWord);
-                item.setRelatedWords(filterRelatedWords(
+                item.setRelatedWords(filterRelatedWordStrings(
                         item.getRelatedWords(),
                         itemExclusions
                 ));
@@ -100,7 +100,43 @@ final class RelatedWordSanitizer {
         dictionary.setTranslationGroups(cleanGroups);
     }
 
-    private static List<String> filterRelatedWords(
+    private static List<DictionaryResponse.RelatedWordItem> filterRelatedWordItems(
+            List<DictionaryResponse.RelatedWordItem> values,
+            Set<String> exclusions
+    ) {
+        if (values == null) {
+            return null;
+        }
+        if (values.isEmpty()) {
+            return List.of();
+        }
+
+        List<DictionaryResponse.RelatedWordItem> result = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+
+        for (DictionaryResponse.RelatedWordItem value : values) {
+            if (value == null || value.getWord() == null || value.getWord().isBlank()) {
+                continue;
+            }
+
+            String cleanWord = value.getWord().trim();
+            String normalizedWord = normalize(cleanWord);
+            if (normalizedWord.isEmpty()
+                    || exclusions.contains(normalizedWord)
+                    || !seen.add(normalizedWord)) {
+                continue;
+            }
+
+            value.setWord(cleanWord);
+            value.setReading(trimToNull(value.getReading()));
+            value.setMeaning(trimToNull(value.getMeaning()));
+            result.add(value);
+        }
+
+        return result;
+    }
+
+    private static List<String> filterRelatedWordStrings(
             List<String> values,
             Set<String> exclusions
     ) {
@@ -131,6 +167,10 @@ final class RelatedWordSanitizer {
         }
 
         return result;
+    }
+
+    private static String trimToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private static void addNormalized(Set<String> values, String value) {

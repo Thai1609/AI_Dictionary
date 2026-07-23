@@ -13,7 +13,7 @@ class RelatedWordSanitizerTest {
     void removesMainWordsAndDuplicatesFromRelatedWords() {
         DictionaryResponse dictionary = new DictionaryResponse();
         dictionary.setWord("保護");
-        dictionary.setRelatedWords(List.of(" 保護 ", "守護", "守護", "防護"));
+        dictionary.setRelatedWords(List.of(related(" 保護 ", "bǎo hù", "bảo vệ"), related("守護", "shǒu hù", "bảo vệ, gìn giữ"), related("守護", "shǒu hù", "trùng"), related("防護", "fáng hù", "phòng hộ")));
 
         DictionaryResponse.Recommendation recommendation =
                 new DictionaryResponse.Recommendation();
@@ -30,7 +30,9 @@ class RelatedWordSanitizerTest {
 
         RelatedWordSanitizer.sanitize(dictionary, "bảo vệ");
 
-        assertEquals(List.of("守護", "防護"), dictionary.getRelatedWords());
+        assertEquals(List.of("守護", "防護"), dictionary.getRelatedWords().stream().map(DictionaryResponse.RelatedWordItem::getWord).toList());
+        assertEquals("shǒu hù", dictionary.getRelatedWords().get(0).getReading());
+        assertEquals("bảo vệ, gìn giữ", dictionary.getRelatedWords().get(0).getMeaning());
         assertEquals(List.of("防守"), option.getRelatedWords());
     }
 
@@ -85,6 +87,19 @@ class RelatedWordSanitizerTest {
         RelatedWordSanitizer.sanitize(dictionary, "máy bay");
 
         assertEquals(List.of(), dictionary.getTranslationGroups());
+    }
+
+    private static DictionaryResponse.RelatedWordItem related(
+            String word,
+            String reading,
+            String meaning
+    ) {
+        DictionaryResponse.RelatedWordItem item =
+                new DictionaryResponse.RelatedWordItem();
+        item.setWord(word);
+        item.setReading(reading);
+        item.setMeaning(meaning);
+        return item;
     }
 
     private static DictionaryResponse.TranslationOption option(

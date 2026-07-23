@@ -23,7 +23,7 @@ public class DictionaryResponse {
     private List<ExampleItem> examples;
     private List<KeyPhraseItem> keyPhrases;
     private List<GrammarPointItem> grammarPoints;
-    private List<String> relatedWords;
+    private List<RelatedWordItem> relatedWords;
 
     /** Các bản dịch được nhóm theo loại từ. */
     private List<TranslationGroup> translationGroups;
@@ -39,6 +39,17 @@ public class DictionaryResponse {
         private String sentence;
         private String reading;
         private String translation;
+    }
+
+
+    @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class RelatedWordItem {
+        private String word;
+        /** Pinyin có dấu khi từ liên quan là tiếng Trung. */
+        private String reading;
+        /** Nghĩa ngắn gọn bằng tiếng Việt. */
+        private String meaning;
     }
 
     @Data

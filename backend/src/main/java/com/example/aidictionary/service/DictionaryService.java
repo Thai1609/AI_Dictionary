@@ -90,7 +90,7 @@ public class DictionaryService {
                 sourceLanguage,
                 targetLanguage
         );
-        if (cached.isPresent()) {
+        if (cached.isPresent() && hasCompleteRelatedWordMetadata(cached.get())) {
             return cachedResponse(cached.get());
         }
 
@@ -115,7 +115,8 @@ public class DictionaryService {
                     sourceLanguage,
                     targetLanguage
             );
-            if (secondCheck.isPresent()) {
+            if (secondCheck.isPresent()
+                    && hasCompleteRelatedWordMetadata(secondCheck.get())) {
                 AnalyzeResponse response = cachedResponse(secondCheck.get());
                 ownerFuture.complete(response);
                 return response;
@@ -270,6 +271,24 @@ public class DictionaryService {
                 response
         );
         return response;
+    }
+
+    /**
+     * Dữ liệu cũ chỉ có tên từ liên quan. Khi thiếu pinyin hoặc nghĩa,
+     * backend gọi lại Gemini một lần và cập nhật bản ghi hiện có.
+     */
+    private boolean hasCompleteRelatedWordMetadata(DictionaryResponse dictionary) {
+        if (dictionary == null || dictionary.getRelatedWords() == null
+                || dictionary.getRelatedWords().isEmpty()) {
+            return true;
+        }
+
+        return dictionary.getRelatedWords().stream().allMatch(item ->
+                item != null
+                        && !isBlank(item.getWord())
+                        && !isBlank(item.getReading())
+                        && !isBlank(item.getMeaning())
+        );
     }
 
     private AnalyzeResponse cachedResponse(DictionaryResponse dictionary) {

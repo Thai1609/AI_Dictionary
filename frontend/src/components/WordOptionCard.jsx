@@ -117,6 +117,7 @@ export default function WordOptionCard({
             sourceLanguage="" 
             targetLanguage="" 
             inputText={option.word}
+            hideSummary={true}
           />
         </div>
       )}

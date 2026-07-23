@@ -470,17 +470,22 @@ public class DictionaryPersistenceService {
         }
     }
 
-    private void replaceRelatedWords(DictionaryEntry entry, List<String> values) {
+    private void replaceRelatedWords(
+            DictionaryEntry entry,
+            List<DictionaryResponse.RelatedWordItem> values
+    ) {
         entry.getRelatedWords().clear();
         if (values == null) {
             return;
         }
-        for (String value : values) {
-            if (isBlank(value)) {
+        for (DictionaryResponse.RelatedWordItem value : values) {
+            if (value == null || isBlank(value.getWord())) {
                 continue;
             }
             DictionaryRelatedWord relatedWord = new DictionaryRelatedWord();
-            relatedWord.setRelatedWord(value.trim());
+            relatedWord.setRelatedWord(value.getWord().trim());
+            relatedWord.setRelatedReading(trimToNull(value.getReading()));
+            relatedWord.setRelatedMeaning(trimToNull(value.getMeaning()));
             relatedWord.setEntry(entry);
             entry.getRelatedWords().add(relatedWord);
         }
@@ -503,7 +508,11 @@ public class DictionaryPersistenceService {
             append(builder, value.getExampleReading());
             append(builder, value.getExampleTranslation());
         });
-        entry.getRelatedWords().forEach(value -> append(builder, value.getRelatedWord()));
+        entry.getRelatedWords().forEach(value -> {
+            append(builder, value.getRelatedWord());
+            append(builder, value.getRelatedReading());
+            append(builder, value.getRelatedMeaning());
+        });
 
         List<DictionaryResponse.TranslationGroup> groups =
                 fromJsonList(entry.getTranslationsJson(), DictionaryResponse.TranslationGroup.class);
@@ -577,7 +586,14 @@ public class DictionaryPersistenceService {
 
         response.setRelatedWords(entry.getRelatedWords().stream()
                 .filter(value -> value != null && !isBlank(value.getRelatedWord()))
-                .map(DictionaryRelatedWord::getRelatedWord)
+                .map(value -> {
+                    DictionaryResponse.RelatedWordItem item =
+                            new DictionaryResponse.RelatedWordItem();
+                    item.setWord(value.getRelatedWord());
+                    item.setReading(value.getRelatedReading());
+                    item.setMeaning(value.getRelatedMeaning());
+                    return item;
+                })
                 .toList());
 
         response.setTranslationGroups(
@@ -649,6 +665,10 @@ public class DictionaryPersistenceService {
         } catch (JsonProcessingException exception) {
             return null;
         }
+    }
+
+    private String trimToNull(String value) {
+        return isBlank(value) ? null : value.trim();
     }
 
     private String defaultText(String value, String defaultValue) {

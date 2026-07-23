@@ -25,6 +25,12 @@ public class DictionaryRelatedWord {
     @Column(name = "related_word", columnDefinition = "TEXT")
     private String relatedWord;
 
+    @Column(name = "related_reading", columnDefinition = "TEXT")
+    private String relatedReading;
+
+    @Column(name = "related_meaning", columnDefinition = "TEXT")
+    private String relatedMeaning;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "entry_id")
     private DictionaryEntry entry;
