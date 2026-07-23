@@ -62,10 +62,6 @@ public class DictionaryService {
         return persistenceService.saveDictionary(request);
     }
 
-    public List<DictionaryResponse> searchDictionary(String keyword) {
-        return persistenceService.searchDictionary(keyword, null, null);
-    }
-
     public List<DictionaryResponse> searchDictionary(
             String keyword,
             String sourceLanguage,

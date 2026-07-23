@@ -80,6 +80,8 @@ public class DictionaryPersistenceService {
                 ? word
                 : request.getSearchKeyword().trim();
 
+        RelatedWordSanitizer.sanitize(dictionary, searchKeyword);
+
         Optional<DictionaryEntry> existingEntry = findExistingEntity(
                 searchKeyword,
                 sourceLanguage,
@@ -584,6 +586,8 @@ public class DictionaryPersistenceService {
         response.setRecommendation(
                 fromJson(entry.getRecommendationJson(), DictionaryResponse.Recommendation.class)
         );
+
+        RelatedWordSanitizer.sanitize(response, entry.getSearchKeyword());
         return response;
     }
 

@@ -34,31 +34,40 @@ public class AiService {
 	@Value("${gemini.api-key:}")
 	private String geminiApiKey;
 
-	@Value("${gemini.model:gemini-2.0-flash}")
+	@Value("${gemini.model:gemini-3.5-flash}")
 	private String geminiModel;
 
-	@Value("${gemini.fallback-model:gemini-2.5-flash}")
+	@Value("${gemini.fallback-model:gemini-3.5-flash}")
 	private String geminiFallbackModel;
-
-	@Value("${gemini.base-url:https://generativelanguage.googleapis.com/v1beta}")
-	private String geminiBaseUrl;
 
 	@Value("${gemini.timeout-ms:20000}")
 	private long timeoutMs;
 
 	public AnalyzeResponse analyzeWord(String word, String sourceLanguage, String targetLanguage) {
-		return callGeminiAndParse(buildWordPrompt(word, sourceLanguage, targetLanguage), "word");
+		return callGeminiAndParse(
+				buildWordPrompt(word, sourceLanguage, targetLanguage),
+				"word",
+				word
+		);
 	}
 
 	public AnalyzeResponse analyzeSentence(String sentence, String sourceLanguage, String targetLanguage) {
-		return callGeminiAndParse(buildSentencePrompt(sentence, sourceLanguage, targetLanguage), "sentence");
+		return callGeminiAndParse(
+				buildSentencePrompt(sentence, sourceLanguage, targetLanguage),
+				"sentence",
+				null
+		);
 	}
 
 	public AnalyzeResponse checkGrammar(String text, String sourceLanguage, String targetLanguage) {
-		return callGeminiAndParse(buildGrammarPrompt(text, sourceLanguage, targetLanguage), "grammar");
+		return callGeminiAndParse(
+				buildGrammarPrompt(text, sourceLanguage, targetLanguage),
+				"grammar",
+				null
+		);
 	}
 
-	private AnalyzeResponse callGeminiAndParse(String prompt, String type) {
+	private AnalyzeResponse callGeminiAndParse(String prompt, String type, String searchedWord) {
 		if (geminiApiKey == null || geminiApiKey.isBlank()) {
 			throw new GeminiServiceException(HttpStatus.SERVICE_UNAVAILABLE, "Gemini API key chưa được cấu hình.");
 		}
@@ -89,6 +98,9 @@ public class AiService {
 			if (response.getType() == null || response.getType().isBlank()) {
 				response.setType(type);
 			}
+			if ("word".equals(type)) {
+				RelatedWordSanitizer.sanitize(response.getDictionary(), searchedWord);
+			}
 			response.setRawAiResponse(aiText);
 			return response;
 		} catch (JacksonException exception) {
@@ -97,10 +109,13 @@ public class AiService {
 	}
 
 	private GeminiResponse callGemini(String prompt, String model) {
-		String url = geminiBaseUrl + "/models/" + model + ":generateContent?key=" + geminiApiKey;
-
 		try {
-			return geminiWebClient.post().uri(url).contentType(MediaType.APPLICATION_JSON)
+			return geminiWebClient.post()
+					.uri(uriBuilder -> uriBuilder
+							.path("/models/{model}:generateContent")
+							.queryParam("key", geminiApiKey)
+							.build(model))
+					.contentType(MediaType.APPLICATION_JSON)
 					.bodyValue(new GeminiRequest(prompt)).retrieve().bodyToMono(GeminiResponse.class)
 					.timeout(Duration.ofMillis(Math.max(timeoutMs, 1000L))).block();
 		} catch (WebClientResponseException exception) {
@@ -264,7 +279,9 @@ public class AiService {
 				Quy tắc bắt buộc:
 				- Chỉ xử lý tiếng Việt và tiếng Trung.
 				- Một từ hoặc cụm từ nguồn có thể có nhiều cách dịch tiếng Trung theo ngữ cảnh.
-				- Phải liệt kê các cách dịch thông dụng trong translationGroups và nhóm theo loại từ như danh từ, động từ, tính từ hoặc phó từ.
+				- Phải liệt kê các cách dịch thông dụng KHÁC từ mặc định trong translationGroups và nhóm theo loại từ như danh từ, động từ, tính từ hoặc phó từ.
+				- translationGroups tuyệt đối không được chứa item có word trùng với dictionary.word, recommendation.defaultWord hoặc nội dung người dùng đã nhập.
+				- Không lặp lại cùng một word trong hoặc giữa các translationGroups.
 				- Không tạo nhóm rỗng và không tạo loại từ không có cách dịch phù hợp.
 				- Mỗi item phải giữ đầy đủ cấu trúc: word, pronunciation, reading, partOfSpeech, meanings, usage, examples, relatedWords và note.
 				- Không gộp các từ khác ngữ cảnh thành một nghĩa duy nhất.
@@ -279,6 +296,11 @@ public class AiService {
 				- dictionary.word phải bằng recommendation.defaultWord và là lựa chọn mặc định phù hợp nhất.
 				- dictionary.pronunciation, reading, partOfSpeech, meanings, examples, relatedWords và note phải mô tả từ mặc định.
 				- recommendation.partOfSpeech phải khớp với loại từ của defaultWord.
+				- relatedWords chỉ chứa các từ hoặc cụm từ liên quan KHÁC với từ chính.
+				- dictionary.relatedWords tuyệt đối không được chứa nội dung người dùng đã nhập, dictionary.word hoặc recommendation.defaultWord.
+				- Mỗi translationGroups[].items[].relatedWords tuyệt đối không được chứa nội dung người dùng đã nhập, dictionary.word, recommendation.defaultWord hoặc word của chính item đó.
+				- So sánh sau khi bỏ khoảng trắng thừa và không phân biệt chữ hoa/chữ thường; không lặp lại cùng một từ trong relatedWords.
+				- Nếu không có từ liên quan phù hợp, trả về relatedWords là mảng rỗng [].
 
 				Ví dụ bắt buộc về cách phân loại từ "bảo vệ":
 				- Danh từ có thể gồm 保安, 警衛 nếu phù hợp ngữ cảnh.

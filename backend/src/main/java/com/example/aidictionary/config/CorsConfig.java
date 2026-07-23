@@ -27,8 +27,6 @@ public class CorsConfig {
                         .distinct()
                         .toList();
 
-        System.out.println("CORS allowed origins: " + allowedOrigins);
-
         CorsConfiguration configuration =
                 new CorsConfiguration();
 
