@@ -7,6 +7,8 @@ import com.example.aidictionary.dto.DictionaryResponse;
 import com.example.aidictionary.dto.GrammarHistoryResponse;
 import com.example.aidictionary.dto.SaveDictionaryRequest;
 import com.example.aidictionary.dto.SaveDictionaryResponse;
+import com.example.aidictionary.dto.WordDetailRequest;
+import com.example.aidictionary.dto.WordLookupResponse;
 import com.example.aidictionary.exception.BadRequestException;
 import com.example.aidictionary.exception.GeminiServiceException;
 import lombok.RequiredArgsConstructor;
@@ -28,22 +30,21 @@ public class DictionaryService {
     private final AiService aiService;
     private final DictionaryPersistenceService persistenceService;
 
-    /**
-     * Chống nhiều request trong cùng một instance gọi Gemini cho cùng một từ.
-     * Có thể bật unique index tùy chọn trong database/ khi chạy nhiều instance.
-     */
-    private final ConcurrentMap<String, CompletableFuture<AnalyzeResponse>> inFlightWordRequests =
+    /** Chống nhiều request xem chi tiết cùng một từ gọi Gemini đồng thời. */
+    private final ConcurrentMap<String, CompletableFuture<AnalyzeResponse>> inFlightDetailRequests =
+            new ConcurrentHashMap<>();
+
+    /** Chống nhiều request tạo danh sách gợi ý cho cùng một nội dung. */
+    private final ConcurrentMap<String, CompletableFuture<WordLookupResponse>> inFlightLookupRequests =
             new ConcurrentHashMap<>();
 
     /**
-     * Không đặt @Transactional ở đây. Chỉ các thao tác DB ngắn trong
-     * DictionaryPersistenceService mới mở transaction; thời gian chờ Gemini
-     * không giữ transaction hoặc database connection.
+     * Luồng mới:
+     * - word: chỉ trả danh sách từ và cách dùng, không lưu database.
+     * - sentence/grammar: giữ nguyên hành vi hiện tại.
      */
-    public AnalyzeResponse analyze(AnalyzeRequest request) {
-        if (request == null || isBlank(request.getText())) {
-            throw new BadRequestException("Nội dung tra cứu không được để trống.");
-        }
+    public Object analyze(AnalyzeRequest request) {
+        validateAnalyzeRequest(request);
 
         String text = request.getText().trim();
         String mode = detectMode(request.getMode(), text);
@@ -51,11 +52,127 @@ public class DictionaryService {
         String targetLanguage = defaultLanguage(request.getTargetLanguage(), "zh");
 
         return switch (mode) {
-            case "word" -> analyzeWord(text, sourceLanguage, targetLanguage);
+            case "word" -> lookupWordOptions(text, sourceLanguage, targetLanguage);
             case "sentence" -> aiService.analyzeSentence(text, sourceLanguage, targetLanguage);
             case "grammar" -> analyzeGrammar(text, sourceLanguage, targetLanguage);
             default -> throw new BadRequestException("Mode không hợp lệ: " + mode);
         };
+    }
+
+    public WordLookupResponse lookupWordOptions(AnalyzeRequest request) {
+        validateAnalyzeRequest(request);
+        String sourceLanguage = defaultLanguage(request.getSourceLanguage(), "vi");
+        String targetLanguage = defaultLanguage(request.getTargetLanguage(), "zh");
+        return lookupWordOptions(request.getText().trim(), sourceLanguage, targetLanguage);
+    }
+
+    /**
+     * Chỉ khi người dùng chọn một từ để xem chi tiết mới:
+     * 1. đọc database;
+     * 2. nếu chưa có thì gọi Gemini;
+     * 3. lưu đúng từ đã được chọn;
+     * 4. trả chi tiết cho frontend.
+     */
+    public AnalyzeResponse getOrCreateWordDetail(WordDetailRequest request) {
+        if (request == null || isBlank(request.getWord())) {
+            throw new BadRequestException("Từ cần xem chi tiết không được để trống.");
+        }
+
+        String selectedWord = request.getWord().trim();
+        String originalQuery = isBlank(request.getOriginalQuery())
+                ? selectedWord
+                : request.getOriginalQuery().trim();
+        String sourceLanguage = defaultLanguage(request.getSourceLanguage(), "vi");
+        String targetLanguage = defaultLanguage(request.getTargetLanguage(), "zh");
+
+        Optional<DictionaryResponse> cached = persistenceService.findExistingWord(
+                selectedWord,
+                sourceLanguage,
+                targetLanguage
+        );
+        if (cached.isPresent()) {
+            return cachedResponse(cached.get());
+        }
+
+        String requestKey = String.join(
+                "|",
+                sourceLanguage,
+                targetLanguage,
+                persistenceService.normalizeForSearch(selectedWord)
+        );
+
+        CompletableFuture<AnalyzeResponse> ownerFuture = new CompletableFuture<>();
+        CompletableFuture<AnalyzeResponse> existingFuture =
+                inFlightDetailRequests.putIfAbsent(requestKey, ownerFuture);
+
+        if (existingFuture != null) {
+            return await(existingFuture);
+        }
+
+        try {
+            Optional<DictionaryResponse> secondCheck = persistenceService.findExistingWord(
+                    selectedWord,
+                    sourceLanguage,
+                    targetLanguage
+            );
+            if (secondCheck.isPresent()) {
+                AnalyzeResponse response = cachedResponse(secondCheck.get());
+                ownerFuture.complete(response);
+                return response;
+            }
+
+            AnalyzeResponse response = aiService.analyzeWordDetail(
+                    selectedWord,
+                    originalQuery,
+                    sourceLanguage,
+                    targetLanguage
+            );
+            DictionaryResponse dictionary = response.getDictionary();
+            if (dictionary == null) {
+                throw new GeminiServiceException(
+                        HttpStatus.BAD_GATEWAY,
+                        "Gemini không trả về dữ liệu chi tiết hợp lệ."
+                );
+            }
+
+            // Từ được lưu phải là đúng lựa chọn người dùng vừa bấm.
+            dictionary.setWord(selectedWord);
+            dictionary.setTranslationGroups(null);
+            dictionary.setRecommendation(null);
+            RelatedWordSanitizer.sanitize(dictionary, selectedWord);
+            RelatedWordSanitizer.sanitize(dictionary, originalQuery);
+
+            SaveDictionaryRequest saveRequest = new SaveDictionaryRequest();
+            saveRequest.setType("word");
+            saveRequest.setSourceLanguage(sourceLanguage);
+            saveRequest.setTargetLanguage(targetLanguage);
+            saveRequest.setSearchKeyword(selectedWord);
+            saveRequest.setDictionary(dictionary);
+
+            try {
+                persistenceService.saveDictionary(saveRequest);
+            } catch (DataIntegrityViolationException conflict) {
+                Optional<DictionaryResponse> savedByAnotherRequest = persistenceService.findExistingWord(
+                        selectedWord,
+                        sourceLanguage,
+                        targetLanguage
+                );
+                if (savedByAnotherRequest.isEmpty()) {
+                    throw conflict;
+                }
+                response.setDictionary(savedByAnotherRequest.get());
+            }
+
+            response.setType("word");
+            response.setMessage("Đã tải chi tiết và lưu từ đã chọn vào database.");
+            ownerFuture.complete(response);
+            return response;
+        } catch (RuntimeException exception) {
+            ownerFuture.completeExceptionally(exception);
+            throw exception;
+        } finally {
+            inFlightDetailRequests.remove(requestKey, ownerFuture);
+        }
     }
 
     public SaveDictionaryResponse saveDictionary(SaveDictionaryRequest request) {
@@ -94,20 +211,11 @@ public class DictionaryService {
         return persistenceService.getGrammarHistoryDetail(id);
     }
 
-    private AnalyzeResponse analyzeWord(
+    private WordLookupResponse lookupWordOptions(
             String text,
             String sourceLanguage,
             String targetLanguage
     ) {
-        Optional<DictionaryResponse> cached = persistenceService.findExistingWord(
-                text,
-                sourceLanguage,
-                targetLanguage
-        );
-        if (cached.isPresent()) {
-            return cachedResponse(cached.get());
-        }
-
         String requestKey = String.join(
                 "|",
                 sourceLanguage,
@@ -115,92 +223,25 @@ public class DictionaryService {
                 persistenceService.normalizeForSearch(text)
         );
 
-        CompletableFuture<AnalyzeResponse> ownerFuture = new CompletableFuture<>();
-        CompletableFuture<AnalyzeResponse> existingFuture =
-                inFlightWordRequests.putIfAbsent(requestKey, ownerFuture);
+        CompletableFuture<WordLookupResponse> ownerFuture = new CompletableFuture<>();
+        CompletableFuture<WordLookupResponse> existingFuture =
+                inFlightLookupRequests.putIfAbsent(requestKey, ownerFuture);
 
         if (existingFuture != null) {
-            return await(existingFuture);
+            return awaitLookup(existingFuture);
         }
 
         try {
-            // Double-check sau khi giành quyền xử lý để đóng race condition.
-            Optional<DictionaryResponse> secondCheck = persistenceService.findExistingWord(
+            WordLookupResponse response = aiService.lookupWordOptions(
                     text,
                     sourceLanguage,
                     targetLanguage
             );
-            if (secondCheck.isPresent()) {
-                AnalyzeResponse response = cachedResponse(secondCheck.get());
-                ownerFuture.complete(response);
-                return response;
-            }
-
-            AnalyzeResponse response = aiService.analyzeWord(
-                    text,
-                    sourceLanguage,
-                    targetLanguage
-            );
-            DictionaryResponse dictionary = response.getDictionary();
-            if (dictionary == null) {
-                throw new GeminiServiceException(
-                        HttpStatus.BAD_GATEWAY,
-                        "Gemini không trả về dữ liệu từ điển hợp lệ."
-                );
-            }
-
-            boolean hasTranslationGroups = dictionary.getTranslationGroups() != null
-                    && dictionary.getTranslationGroups().stream()
-                    .filter(group -> group != null && group.getItems() != null)
-                    .flatMap(group -> group.getItems().stream())
-                    .anyMatch(item -> item != null && !isBlank(item.getWord()));
-
-            if (isBlank(dictionary.getWord())
-                    && dictionary.getRecommendation() != null
-                    && !isBlank(dictionary.getRecommendation().getDefaultWord())) {
-                dictionary.setWord(dictionary.getRecommendation().getDefaultWord().trim());
-            }
-
-            if (isBlank(dictionary.getWord()) && hasTranslationGroups) {
-                dictionary.getTranslationGroups().stream()
-                        .filter(group -> group != null && group.getItems() != null)
-                        .flatMap(group -> group.getItems().stream())
-                        .filter(item -> item != null && !isBlank(item.getWord()))
-                        .findFirst()
-                        .ifPresent(item -> dictionary.setWord(item.getWord().trim()));
-            }
-
-            if (isBlank(dictionary.getWord())) {
-                throw new GeminiServiceException(
-                        HttpStatus.BAD_GATEWAY,
-                        "Gemini không trả về từ mặc định hoặc danh sách bản dịch hợp lệ."
-                );
-            }
-
-            SaveDictionaryRequest saveRequest = new SaveDictionaryRequest();
-            saveRequest.setType("word");
-            saveRequest.setSourceLanguage(sourceLanguage);
-            saveRequest.setTargetLanguage(targetLanguage);
-            saveRequest.setSearchKeyword(text);
-            saveRequest.setDictionary(response.getDictionary());
-
-            try {
-                persistenceService.saveDictionary(saveRequest);
-            } catch (DataIntegrityViolationException conflict) {
-                // Một instance khác có thể đã lưu trước. Chỉ bỏ qua lỗi khi đọc lại được dữ liệu.
-                Optional<DictionaryResponse> savedByAnotherRequest = persistenceService.findExistingWord(
-                        text,
-                        sourceLanguage,
-                        targetLanguage
-                );
-                if (savedByAnotherRequest.isEmpty()) {
-                    throw conflict;
-                }
-                response.setDictionary(savedByAnotherRequest.get());
-            }
-
+            response.setQuery(text);
+            response.setSourceLanguage(sourceLanguage);
+            response.setTargetLanguage(targetLanguage);
             if (isBlank(response.getMessage())) {
-                response.setMessage("Phân tích bằng Gemini và đã lưu vào database.");
+                response.setMessage("Chọn một từ để xem chi tiết. Danh sách này chưa được lưu vào database.");
             }
             ownerFuture.complete(response);
             return response;
@@ -208,7 +249,7 @@ public class DictionaryService {
             ownerFuture.completeExceptionally(exception);
             throw exception;
         } finally {
-            inFlightWordRequests.remove(requestKey, ownerFuture);
+            inFlightLookupRequests.remove(requestKey, ownerFuture);
         }
     }
 
@@ -235,7 +276,7 @@ public class DictionaryService {
         return AnalyzeResponse.builder()
                 .type("word")
                 .dictionary(dictionary)
-                .message("Lấy dữ liệu từ database.")
+                .message("Lấy chi tiết từ database.")
                 .build();
     }
 
@@ -243,15 +284,32 @@ public class DictionaryService {
         try {
             return future.join();
         } catch (CompletionException exception) {
-            Throwable cause = exception.getCause();
-            if (cause instanceof RuntimeException runtimeException) {
-                throw runtimeException;
-            }
-            throw new GeminiServiceException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Không thể nhận kết quả phân tích Gemini.",
-                    cause
-            );
+            throw unwrapFutureException(exception, "Không thể nhận kết quả chi tiết từ Gemini.");
+        }
+    }
+
+    private WordLookupResponse awaitLookup(CompletableFuture<WordLookupResponse> future) {
+        try {
+            return future.join();
+        } catch (CompletionException exception) {
+            throw unwrapFutureException(exception, "Không thể nhận danh sách từ gợi ý từ Gemini.");
+        }
+    }
+
+    private RuntimeException unwrapFutureException(
+            CompletionException exception,
+            String fallbackMessage
+    ) {
+        Throwable cause = exception.getCause();
+        if (cause instanceof RuntimeException runtimeException) {
+            return runtimeException;
+        }
+        return new GeminiServiceException(HttpStatus.BAD_GATEWAY, fallbackMessage, cause);
+    }
+
+    private void validateAnalyzeRequest(AnalyzeRequest request) {
+        if (request == null || isBlank(request.getText())) {
+            throw new BadRequestException("Nội dung tra cứu không được để trống.");
         }
     }
 

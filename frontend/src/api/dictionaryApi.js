@@ -129,6 +129,92 @@ export async function analyzeText({ text, mode, sourceLanguage, targetLanguage }
   return data;
 }
 
+export async function getWordOptions({ text, sourceLanguage, targetLanguage }) {
+  const baseUrl = normalizeBaseUrl();
+
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/dictionary/word-options`, {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      body: JSON.stringify({
+        text,
+        mode: 'word',
+        sourceLanguage,
+        targetLanguage,
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ (${baseUrl}). Chi tiết: ${err.message}`);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    let errorMessage = `Yêu cầu thất bại với trạng thái ${response.status}`;
+
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.message || errorMessage;
+    } catch {
+      errorMessage = errorText || errorMessage;
+    }
+
+    if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+      throw new Error(
+        'Hệ thống đang xử lý quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.'
+      );
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+export async function getWordDetail({ word, originalQuery, sourceLanguage, targetLanguage }) {
+  const baseUrl = normalizeBaseUrl();
+
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/dictionary/word-detail`, {
+      method: 'POST',
+      headers: buildJsonHeaders(),
+      body: JSON.stringify({
+        word,
+        originalQuery,
+        sourceLanguage,
+        targetLanguage,
+      }),
+    });
+  } catch (err) {
+    throw new Error(`Không thể kết nối đến máy chủ (${baseUrl}). Chi tiết: ${err.message}`);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    let errorMessage = `Yêu cầu thất bại với trạng thái ${response.status}`;
+
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.message || errorMessage;
+    } catch {
+      errorMessage = errorText || errorMessage;
+    }
+
+    if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+      throw new Error(
+        'Hệ thống đang xử lý quá nhiều yêu cầu. Vui lòng thử lại sau ít phút.'
+      );
+    }
+
+    throw new Error(errorMessage);
+  }
+
+  const data = await response.json();
+  return data;
+}
+
 export async function saveWord({
   type,
   sourceLanguage,

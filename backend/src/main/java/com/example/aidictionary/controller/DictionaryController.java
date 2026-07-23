@@ -7,6 +7,8 @@ import com.example.aidictionary.dto.DictionaryResponse;
 import com.example.aidictionary.dto.GrammarHistoryResponse;
 import com.example.aidictionary.dto.SaveDictionaryRequest;
 import com.example.aidictionary.dto.SaveDictionaryResponse;
+import com.example.aidictionary.dto.WordDetailRequest;
+import com.example.aidictionary.dto.WordLookupResponse;
 import com.example.aidictionary.service.DictionaryService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -43,10 +45,24 @@ public class DictionaryController {
     }
 
     @PostMapping("/analyze")
-    public ResponseEntity<AnalyzeResponse> analyze(
+    public ResponseEntity<Object> analyze(
             @Valid @RequestBody AnalyzeRequest request
     ) {
         return ResponseEntity.ok(dictionaryService.analyze(request));
+    }
+
+    @PostMapping("/word-options")
+    public ResponseEntity<WordLookupResponse> lookupWordOptions(
+            @Valid @RequestBody AnalyzeRequest request
+    ) {
+        return ResponseEntity.ok(dictionaryService.lookupWordOptions(request));
+    }
+
+    @PostMapping("/word-detail")
+    public ResponseEntity<AnalyzeResponse> getWordDetail(
+            @Valid @RequestBody WordDetailRequest request
+    ) {
+        return ResponseEntity.ok(dictionaryService.getOrCreateWordDetail(request));
     }
 
     @PostMapping("/save")

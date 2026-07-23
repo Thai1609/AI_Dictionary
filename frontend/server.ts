@@ -13,6 +13,48 @@ async function startServer() {
   // Increase payload size limit for base64 images
   app.use(express.json({ limit: "50mb" }));
 
+  // Use the Render URL explicitly
+  const SPRING_BOOT_URL = "https://ai-dictionary-backend-36vo.onrender.com";
+  
+  app.use("/api/dictionary", async (req, res) => {
+    try {
+      const targetUrl = `${SPRING_BOOT_URL}/api/dictionary${req.url}`;
+      const headers = new Headers();
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (key.toLowerCase() !== 'connection' && key.toLowerCase() !== 'content-length' && value !== undefined) {
+          if (Array.isArray(value)) {
+            value.forEach(v => headers.append(key, v));
+          } else {
+            headers.set(key, value);
+          }
+        }
+      }
+      headers.set('host', new URL(SPRING_BOOT_URL).host);
+
+      const options: RequestInit = {
+        method: req.method,
+        headers,
+      };
+
+      if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+        options.body = JSON.stringify(req.body);
+      }
+
+      const response = await fetch(targetUrl, options);
+      const text = await response.text();
+      
+      const contentType = response.headers.get('content-type');
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+      
+      res.status(response.status).send(text);
+    } catch (error) {
+      console.error("Proxy error:", error);
+      res.status(500).json({ error: "Proxy error: " + error.message });
+    }
+  });
+
   // API Routes
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });

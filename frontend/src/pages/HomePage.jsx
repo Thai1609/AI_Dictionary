@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Header from '../components/Header';
 import ModeTabs from '../components/ModeTabs';
 import LanguageSelector from '../components/LanguageSelector';
 import SearchBox from '../components/SearchBox';
 import ResultCard from '../components/ResultCard';
-import { analyzeText, searchDictionary, checkHealth } from '../api/dictionaryApi';
+import WordOptionCard from '../components/WordOptionCard';
+import { analyzeText, searchDictionary, getWordOptions, getWordDetail } from '../api/dictionaryApi';
 import { getApiBaseUrl } from '../config/apiConfig';
-import { AlertCircle, RefreshCw, HelpCircle, BookOpen, Layers, WifiOff, Loader2 } from 'lucide-react';
+import { AlertCircle, RefreshCw, BookOpen } from 'lucide-react';
 
 export default function HomePage() {
   const [text, setText] = useState('');
@@ -18,24 +19,12 @@ export default function HomePage() {
   const [result, setResult] = useState(null);
   const [searchResults, setSearchResults] = useState(null);
   const [error, setError] = useState('');
-  const [isOffline, setIsOffline] = useState(false);
-  const [checkingStatus, setCheckingStatus] = useState(true);
 
-  const checkConnection = async () => {
-    setCheckingStatus(true);
-    try {
-      await checkHealth();
-      setIsOffline(false);
-    } catch (err) {
-      setIsOffline(true);
-    } finally {
-      setCheckingStatus(false);
-    }
-  };
-
-  useEffect(() => {
-    checkConnection();
-  }, []);
+  // New states for the 2-step word lookup
+  const [wordOptions, setWordOptions] = useState([]);
+  const [selectedWord, setSelectedWord] = useState(null);
+  const [wordDetails, setWordDetails] = useState({});
+  const [loadingDetailWord, setLoadingDetailWord] = useState(null);
 
   const handleAnalyze = async () => {
     if (!text.trim()) {
@@ -52,6 +41,8 @@ export default function HomePage() {
     setError('');
     setResult(null);
     setSearchResults(null);
+    setWordOptions([]);
+    setSelectedWord(null);
 
     // If it takes more than 5 seconds, it's likely a cold start
     const timer = setTimeout(() => {
@@ -62,6 +53,13 @@ export default function HomePage() {
       if (mode === 'search') {
         const data = await searchDictionary(text.trim());
         setSearchResults(data);
+      } else if (mode === 'word') {
+        const data = await getWordOptions({
+          text: text.trim(),
+          sourceLanguage,
+          targetLanguage,
+        });
+        setWordOptions(data.options || []);
       } else {
         const data = await analyzeText({
           text: text.trim(),
@@ -95,69 +93,53 @@ export default function HomePage() {
     }
   };
 
+  const handleViewDetail = async (option) => {
+    if (selectedWord === option.word) {
+      setSelectedWord(null);
+      return;
+    }
+
+    setSelectedWord(option.word);
+
+    if (wordDetails[option.word]) {
+      return;
+    }
+
+    setLoadingDetailWord(option.word);
+    setError('');
+
+    try {
+      const data = await getWordDetail({
+        word: option.word,
+        originalQuery: text.trim(),
+        sourceLanguage,
+        targetLanguage,
+      });
+
+      if (data && data.dictionary) {
+        setWordDetails((prev) => ({
+          ...prev,
+          [option.word]: data.dictionary,
+        }));
+      }
+    } catch (err) {
+      console.error('Lỗi khi lấy chi tiết từ:', err);
+      // We do NOT wipe the current results. The error will just be displayed.
+      setError(`Lỗi khi lấy chi tiết từ '${option.word}': ${err.message}`);
+    } finally {
+      setLoadingDetailWord(null);
+    }
+  };
+
   const handleModeChange = (newMode) => {
     setMode(newMode);
     // Optionally clear results when switching modes to avoid mismatched presentation
     setResult(null);
     setSearchResults(null);
+    setWordOptions([]);
+    setSelectedWord(null);
     setError('');
   };
-
-  if (checkingStatus) {
-    return (
-      <div className="homepage-container" id="homepage-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Header />
-        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-            <Loader2 size={48} className="animate-spin" style={{ color: 'var(--color-primary)' }} />
-            <p style={{ color: 'var(--color-text-light)', fontWeight: 500 }}>Đang kiểm tra kết nối hệ thống...</p>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (isOffline) {
-    return (
-      <div className="homepage-container" id="homepage-container" style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Header />
-        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '2rem' }}>
-          <div style={{ maxWidth: '500px', width: '100%', textAlign: 'center', backgroundColor: 'var(--color-bg-card)', padding: '3rem 2rem', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.05)', border: '1px solid var(--color-border)' }}>
-            <WifiOff size={64} style={{ color: 'var(--color-danger, #ef4444)', margin: '0 auto 1.5rem', opacity: 0.9 }} />
-            <h1 style={{ fontSize: '1.75rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '1rem' }}>
-              Hệ thống đang bảo trì
-            </h1>
-            <p style={{ color: 'var(--color-text-light)', fontSize: '1rem', lineHeight: 1.6, marginBottom: '2rem' }}>
-              Không thể kết nối đến máy chủ API. Hệ thống có thể đang bảo trì, nâng cấp, hoặc đang được khởi động lại. Vui lòng thử lại sau ít phút.
-            </p>
-            
-            <button 
-              onClick={checkConnection}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                backgroundColor: 'var(--color-primary)',
-                color: 'white',
-                border: 'none',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '8px',
-                fontSize: '1rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'background-color 0.2s',
-              }}
-              onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'var(--color-primary)'}
-            >
-              <RefreshCw size={18} />
-              Thử kết nối lại
-            </button>
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   return (
     <div className="homepage-container" id="homepage-container">
@@ -252,7 +234,7 @@ export default function HomePage() {
             </div>
           )}
 
-          {!loading && !result && !error && !searchResults && (
+          {!loading && !result && !error && !searchResults && wordOptions.length === 0 && (
             <div className="welcome-placeholder" id="welcome-placeholder">
               <div className="placeholder-icon-wrapper">
                 <BookOpen size={48} className="placeholder-icon" />
@@ -335,7 +317,26 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Render Result Cards */}
+          {/* Render Word Options (2-step flow) */}
+          {!loading && mode === 'word' && wordOptions && wordOptions.length > 0 && (
+            <div className="word-options-list animate-fade-in" style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: '600', color: 'var(--color-text)', marginBottom: '1rem' }}>
+                Chọn một từ phù hợp để xem chi tiết
+              </h3>
+              {wordOptions.map((option, index) => (
+                <WordOptionCard
+                  key={index}
+                  option={option}
+                  isSelected={selectedWord === option.word}
+                  isLoading={loadingDetailWord === option.word}
+                  details={wordDetails[option.word]}
+                  onToggle={handleViewDetail}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Render Result Cards (For Sentence, Grammar, Translation) */}
           {!loading && result && (
             <div className="result-container animate-fade-in" id="result-container">
               {mode === 'search' && searchResults && (

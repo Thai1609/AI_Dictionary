@@ -1,6 +1,15 @@
 package com.example.aidictionary.service;
 
 import java.time.Duration;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,6 +21,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import com.example.aidictionary.dto.AnalyzeResponse;
+import com.example.aidictionary.dto.WordLookupResponse;
 import com.example.aidictionary.dto.gemini.GeminiRequest;
 import com.example.aidictionary.dto.gemini.GeminiResponse;
 import com.example.aidictionary.exception.GeminiServiceException;
@@ -37,17 +47,63 @@ public class AiService {
 	@Value("${gemini.model:gemini-3.5-flash}")
 	private String geminiModel;
 
-	@Value("${gemini.fallback-model:gemini-3.5-flash}")
+	@Value("${gemini.fallback-model:gemini-3.1-flash-lite}")
 	private String geminiFallbackModel;
 
 	@Value("${gemini.timeout-ms:20000}")
 	private long timeoutMs;
 
-	public AnalyzeResponse analyzeWord(String word, String sourceLanguage, String targetLanguage) {
+	@Value("${gemini.max-retries:2}")
+	private int maxRetries;
+
+	@Value("${gemini.retry-base-delay-ms:2000}")
+	private long retryBaseDelayMs;
+
+	@Value("${gemini.min-request-interval-ms:1200}")
+	private long minRequestIntervalMs;
+
+	private final Object requestRateLock = new Object();
+	private long nextRequestAllowedAt;
+
+	public WordLookupResponse lookupWordOptions(
+			String text,
+			String sourceLanguage,
+			String targetLanguage
+	) {
+		String aiText = requestGeminiText(
+				buildWordLookupPrompt(text, sourceLanguage, targetLanguage)
+		);
+		try {
+			WordLookupResponse response = jsonMapper.readValue(
+					cleanJson(aiText),
+					WordLookupResponse.class
+			);
+			sanitizeWordOptions(response);
+			return response;
+		} catch (JacksonException exception) {
+			throw new GeminiServiceException(
+					HttpStatus.BAD_GATEWAY,
+					"Gemini trả về danh sách từ không hợp lệ.",
+					exception
+			);
+		}
+	}
+
+	public AnalyzeResponse analyzeWordDetail(
+			String selectedWord,
+			String originalQuery,
+			String sourceLanguage,
+			String targetLanguage
+	) {
 		return callGeminiAndParse(
-				buildWordPrompt(word, sourceLanguage, targetLanguage),
+				buildWordDetailPrompt(
+						selectedWord,
+						originalQuery,
+						sourceLanguage,
+						targetLanguage
+				),
 				"word",
-				word
+				selectedWord
 		);
 	}
 
@@ -68,28 +124,7 @@ public class AiService {
 	}
 
 	private AnalyzeResponse callGeminiAndParse(String prompt, String type, String searchedWord) {
-		if (geminiApiKey == null || geminiApiKey.isBlank()) {
-			throw new GeminiServiceException(HttpStatus.SERVICE_UNAVAILABLE, "Gemini API key chưa được cấu hình.");
-		}
-
-		GeminiResponse geminiResponse;
-		try {
-			geminiResponse = callGemini(prompt, geminiModel);
-		} catch (GeminiServiceException firstError) {
-			boolean canFallback = isQuotaError(firstError) && geminiFallbackModel != null
-					&& !geminiFallbackModel.isBlank() && !geminiFallbackModel.equals(geminiModel);
-			if (!canFallback) {
-				throw firstError;
-			}
-			geminiResponse = callGemini(prompt, geminiFallbackModel);
-		}
-
-		if (geminiResponse == null || geminiResponse.getFirstText() == null
-				|| geminiResponse.getFirstText().isBlank()) {
-			throw new GeminiServiceException(HttpStatus.BAD_GATEWAY, "Gemini không trả về dữ liệu.");
-		}
-
-		String aiText = geminiResponse.getFirstText();
+		String aiText = requestGeminiText(prompt);
 		try {
 			String json = cleanJson(aiText);
 			json = normalizeWordResponse(json);
@@ -108,33 +143,167 @@ public class AiService {
 		}
 	}
 
-	private GeminiResponse callGemini(String prompt, String model) {
+	private String requestGeminiText(String prompt) {
+		if (geminiApiKey == null || geminiApiKey.isBlank()) {
+			throw new GeminiServiceException(
+					HttpStatus.SERVICE_UNAVAILABLE,
+					"Gemini API key chưa được cấu hình."
+			);
+		}
+
+		GeminiResponse geminiResponse;
 		try {
-			return geminiWebClient.post()
-					.uri(uriBuilder -> uriBuilder
-							.path("/models/{model}:generateContent")
-							.queryParam("key", geminiApiKey)
-							.build(model))
-					.contentType(MediaType.APPLICATION_JSON)
-					.bodyValue(new GeminiRequest(prompt)).retrieve().bodyToMono(GeminiResponse.class)
-					.timeout(Duration.ofMillis(Math.max(timeoutMs, 1000L))).block();
-		} catch (WebClientResponseException exception) {
-			HttpStatus status = exception.getStatusCode().value() == 429 ? HttpStatus.TOO_MANY_REQUESTS
-					: HttpStatus.BAD_GATEWAY;
-			throw new GeminiServiceException(status,
-					"Gemini API trả về lỗi HTTP " + exception.getStatusCode().value() + ".", exception);
-		} catch (RuntimeException exception) {
-			if (containsCause(exception, TimeoutException.class)) {
-				throw new GeminiServiceException(HttpStatus.GATEWAY_TIMEOUT,
-						"Gemini phản hồi quá thời gian cho phép " + timeoutMs + " ms.", exception);
+			geminiResponse = callGemini(prompt, geminiModel);
+		} catch (GeminiServiceException firstError) {
+			boolean canFallback = isModelUnavailable(firstError)
+					&& geminiFallbackModel != null
+					&& !geminiFallbackModel.isBlank()
+					&& !geminiFallbackModel.equals(geminiModel);
+			if (!canFallback) {
+				throw firstError;
 			}
-			throw new GeminiServiceException(HttpStatus.BAD_GATEWAY, "Không thể kết nối đến Gemini API.", exception);
+			geminiResponse = callGemini(prompt, geminiFallbackModel);
+		}
+
+		if (geminiResponse == null
+				|| geminiResponse.getFirstText() == null
+				|| geminiResponse.getFirstText().isBlank()) {
+			throw new GeminiServiceException(
+					HttpStatus.BAD_GATEWAY,
+					"Gemini không trả về dữ liệu."
+			);
+		}
+		return geminiResponse.getFirstText();
+	}
+
+	private GeminiResponse callGemini(String prompt, String model) {
+		int retryLimit = Math.max(maxRetries, 0);
+
+		for (int attempt = 0; attempt <= retryLimit; attempt++) {
+			waitForRequestSlot();
+
+			try {
+				return geminiWebClient.post()
+						.uri(uriBuilder -> uriBuilder
+								.path("/models/{model}:generateContent")
+								.queryParam("key", geminiApiKey)
+								.build(model))
+						.contentType(MediaType.APPLICATION_JSON)
+						.bodyValue(new GeminiRequest(prompt))
+						.retrieve()
+						.bodyToMono(GeminiResponse.class)
+						.timeout(Duration.ofMillis(Math.max(timeoutMs, 1000L)))
+						.block();
+			} catch (WebClientResponseException exception) {
+				int statusCode = exception.getStatusCode().value();
+				boolean transientError = statusCode == 429 || statusCode == 503;
+
+				if (transientError && attempt < retryLimit) {
+					sleepBeforeRetry(exception, attempt);
+					continue;
+				}
+
+				if (statusCode == 429) {
+					throw new GeminiServiceException(
+							HttpStatus.TOO_MANY_REQUESTS,
+							"Gemini đã vượt giới hạn request hoặc token của project. Vui lòng thử lại sau.",
+							exception
+					);
+				}
+
+				throw new GeminiServiceException(
+						HttpStatus.BAD_GATEWAY,
+						"Gemini API trả về lỗi HTTP " + statusCode + ".",
+						exception
+				);
+			} catch (RuntimeException exception) {
+				if (containsCause(exception, TimeoutException.class)) {
+					throw new GeminiServiceException(
+							HttpStatus.GATEWAY_TIMEOUT,
+							"Gemini phản hồi quá thời gian cho phép " + timeoutMs + " ms.",
+							exception
+					);
+				}
+				throw new GeminiServiceException(
+						HttpStatus.BAD_GATEWAY,
+						"Không thể kết nối đến Gemini API.",
+						exception
+				);
+			}
+		}
+
+		throw new GeminiServiceException(HttpStatus.BAD_GATEWAY, "Không thể gọi Gemini API.");
+	}
+
+	private boolean isModelUnavailable(GeminiServiceException exception) {
+		Throwable current = exception;
+		while (current != null) {
+			if (current instanceof WebClientResponseException webClientError) {
+				int statusCode = webClientError.getStatusCode().value();
+				return statusCode == 400 || statusCode == 404;
+			}
+			current = current.getCause();
+		}
+		return false;
+	}
+
+	private void waitForRequestSlot() {
+		long interval = Math.max(minRequestIntervalMs, 0L);
+		if (interval == 0L) {
+			return;
+		}
+
+		synchronized (requestRateLock) {
+			long now = System.currentTimeMillis();
+			long waitMs = Math.max(nextRequestAllowedAt - now, 0L);
+			if (waitMs > 0L) {
+				sleep(waitMs);
+			}
+			nextRequestAllowedAt = System.currentTimeMillis() + interval;
 		}
 	}
 
-	private boolean isQuotaError(GeminiServiceException exception) {
-		return exception.getStatus() == HttpStatus.TOO_MANY_REQUESTS
-				|| (exception.getMessage() != null && exception.getMessage().toLowerCase().contains("quota"));
+	private void sleepBeforeRetry(WebClientResponseException exception, int attempt) {
+		long retryAfterMs = parseRetryAfterMillis(exception);
+		long exponentialDelay = Math.max(retryBaseDelayMs, 250L)
+				* (1L << Math.min(attempt, 6));
+		long jitterMs = ThreadLocalRandom.current().nextLong(200L, 751L);
+		long delayMs = Math.max(retryAfterMs, exponentialDelay + jitterMs);
+		sleep(Math.min(delayMs, 60_000L));
+	}
+
+	private long parseRetryAfterMillis(WebClientResponseException exception) {
+		String retryAfter = exception.getHeaders().getFirst("Retry-After");
+		if (retryAfter == null || retryAfter.isBlank()) {
+			return 0L;
+		}
+
+		try {
+			return Math.max(Long.parseLong(retryAfter.trim()), 0L) * 1000L;
+		} catch (NumberFormatException ignored) {
+			try {
+				ZonedDateTime retryAt = ZonedDateTime.parse(
+						retryAfter.trim(),
+						DateTimeFormatter.RFC_1123_DATE_TIME
+				);
+				return Math.max(retryAt.toInstant().toEpochMilli() - System.currentTimeMillis(), 0L);
+			} catch (DateTimeParseException ignoredDate) {
+				return 0L;
+			}
+		}
+	}
+
+	private void sleep(long delayMs) {
+		try {
+			Thread.sleep(Math.max(delayMs, 0L));
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			throw new GeminiServiceException(
+					HttpStatus.SERVICE_UNAVAILABLE,
+					"Tiến trình gọi Gemini đã bị gián đoạn.",
+					exception
+			);
+		}
 	}
 
 	private boolean containsCause(Throwable throwable, Class<? extends Throwable> expectedType) {
@@ -214,18 +383,150 @@ public class AiService {
 		}
 	}
 
-	private String buildWordPrompt(String word, String sourceLanguage, String targetLanguage) {
-		return """
-				Bạn là chuyên gia từ điển tiếng Việt - tiếng Trung dành cho người Việt học tiếng Trung.
+	private void sanitizeWordOptions(WordLookupResponse response) {
+		if (response == null) {
+			throw new GeminiServiceException(
+					HttpStatus.BAD_GATEWAY,
+					"Gemini không trả về danh sách từ."
+			);
+		}
 
-				Hãy phân tích từ hoặc cụm từ sau:
-				- Nội dung người dùng nhập: "%s"
+		List<WordLookupResponse.WordOption> source = response.getOptions();
+		if (source == null) {
+			response.setOptions(List.of());
+			return;
+		}
+
+		Map<String, WordLookupResponse.WordOption> unique = new LinkedHashMap<>();
+		for (WordLookupResponse.WordOption option : source) {
+			if (option == null || option.getWord() == null || option.getWord().isBlank()) {
+				continue;
+			}
+			option.setWord(option.getWord().trim());
+			option.setPronunciation(trimToNull(option.getPronunciation()));
+			option.setReading(trimToNull(option.getReading()));
+			option.setPartOfSpeech(trimToNull(option.getPartOfSpeech()));
+			option.setUsage(trimToNull(option.getUsage()));
+			option.setReason(trimToNull(option.getReason()));
+			option.setMeanings(cleanTextList(option.getMeanings()));
+
+			String key = normalizeOptionWord(option.getWord());
+			WordLookupResponse.WordOption existing = unique.get(key);
+			if (existing == null) {
+				unique.put(key, option);
+			} else if (option.isRecommended()) {
+				existing.setRecommended(true);
+				if (existing.getReason() == null) {
+					existing.setReason(option.getReason());
+				}
+			}
+		}
+
+		List<WordLookupResponse.WordOption> cleaned = new ArrayList<>(unique.values());
+		boolean recommendedFound = false;
+		for (WordLookupResponse.WordOption option : cleaned) {
+			if (!option.isRecommended()) {
+				continue;
+			}
+			if (recommendedFound) {
+				option.setRecommended(false);
+			} else {
+				recommendedFound = true;
+			}
+		}
+		if (!recommendedFound && !cleaned.isEmpty()) {
+			cleaned.get(0).setRecommended(true);
+		}
+		response.setOptions(cleaned);
+	}
+
+	private List<String> cleanTextList(List<String> values) {
+		if (values == null) {
+			return List.of();
+		}
+		Map<String, String> unique = new LinkedHashMap<>();
+		for (String value : values) {
+			String clean = trimToNull(value);
+			if (clean != null) {
+				unique.putIfAbsent(clean.toLowerCase(Locale.ROOT), clean);
+			}
+		}
+		return new ArrayList<>(unique.values());
+	}
+
+	private String trimToNull(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		return value.trim();
+	}
+
+	private String normalizeOptionWord(String value) {
+		return value == null
+				? ""
+				: value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+	}
+
+	private String buildWordLookupPrompt(String text, String sourceLanguage, String targetLanguage) {
+		return """
+				Bạn là chuyên gia từ điển dành cho người Việt học tiếng Trung.
+
+				Nhiệm vụ hiện tại chỉ là tạo DANH SÁCH LỰA CHỌN NGẮN GỌN.
+				Không phân tích chi tiết, không tạo câu ví dụ và không tạo relatedWords.
+
+				- Nội dung người dùng tra: "%s"
 				- Ngôn ngữ nguồn: "%s"
 				- Ngôn ngữ đích: "%s"
 
-				Chỉ trả về một JSON hợp lệ. Không dùng markdown và không viết nội dung ngoài JSON.
+				Chỉ trả về JSON hợp lệ, không markdown và không nội dung ngoài JSON:
+				{
+				  "query": "",
+				  "sourceLanguage": "",
+				  "targetLanguage": "",
+				  "options": [
+				    {
+				      "word": "",
+				      "pronunciation": "",
+				      "reading": "",
+				      "partOfSpeech": "",
+				      "meanings": [""],
+				      "usage": "",
+				      "recommended": true,
+				      "reason": ""
+				    }
+				  ],
+				  "message": ""
+				}
 
-				Format JSON bắt buộc:
+				Quy tắc:
+				- Trả 3 đến 8 lựa chọn thực sự hữu ích và khác nhau về ngữ cảnh sử dụng.
+				- options phải bao gồm cả từ phù hợp nhất và các từ gần nghĩa/liên quan đáng học.
+				- Không lặp cùng một word.
+				- Chỉ đúng một lựa chọn có recommended=true.
+				- usage giải thích ngắn gọn khi nào dùng từ đó và khác gì với lựa chọn khác.
+				- partOfSpeech và mọi giải thích phải viết bằng tiếng Việt.
+				- Nếu word là tiếng Trung, dùng chữ Hán phồn thể; pronunciation và reading dùng pinyin có dấu.
+				- meanings chỉ chứa nghĩa tiếng Việt ngắn gọn.
+				- Không tạo examples, relatedWords, translationGroups hoặc dữ liệu chi tiết khác.
+				""".formatted(text, sourceLanguage, targetLanguage);
+	}
+
+	private String buildWordDetailPrompt(
+			String selectedWord,
+			String originalQuery,
+			String sourceLanguage,
+			String targetLanguage
+	) {
+		return """
+				Bạn là chuyên gia từ điển dành cho người Việt học tiếng Trung.
+
+				Người dùng đã chọn một từ từ danh sách gợi ý và bây giờ mới yêu cầu xem chi tiết.
+				- Từ được chọn: "%s"
+				- Từ khóa tra ban đầu: "%s"
+				- Ngôn ngữ nguồn ban đầu: "%s"
+				- Ngôn ngữ đích ban đầu: "%s"
+
+				Chỉ trả về JSON hợp lệ, không markdown và không nội dung ngoài JSON:
 				{
 				  "type": "word",
 				  "dictionary": {
@@ -242,80 +543,28 @@ public class AiService {
 				      }
 				    ],
 				    "relatedWords": [""],
-				    "translationGroups": [
-				      {
-				        "partOfSpeech": "",
-				        "items": [
-				          {
-				            "word": "",
-				            "pronunciation": "",
-				            "reading": "",
-				            "partOfSpeech": "",
-				            "meanings": [""],
-				            "usage": "",
-				            "examples": [
-				              {
-				                "sentence": "",
-				                "reading": "",
-				                "translation": ""
-				              }
-				            ],
-				            "relatedWords": [""],
-				            "note": ""
-				          }
-				        ]
-				      }
-				    ],
-				    "recommendation": {
-				      "defaultWord": "",
-				      "partOfSpeech": "",
-				      "reason": ""
-				    },
 				    "note": ""
 				  },
 				  "message": ""
 				}
 
-				Quy tắc bắt buộc:
-				- Chỉ xử lý tiếng Việt và tiếng Trung.
-				- Một từ hoặc cụm từ nguồn có thể có nhiều cách dịch tiếng Trung theo ngữ cảnh.
-				- Phải liệt kê các cách dịch thông dụng KHÁC từ mặc định trong translationGroups và nhóm theo loại từ như danh từ, động từ, tính từ hoặc phó từ.
-				- translationGroups tuyệt đối không được chứa item có word trùng với dictionary.word, recommendation.defaultWord hoặc nội dung người dùng đã nhập.
-				- Không lặp lại cùng một word trong hoặc giữa các translationGroups.
-				- Không tạo nhóm rỗng và không tạo loại từ không có cách dịch phù hợp.
-				- Mỗi item phải giữ đầy đủ cấu trúc: word, pronunciation, reading, partOfSpeech, meanings, usage, examples, relatedWords và note.
-				- Không gộp các từ khác ngữ cảnh thành một nghĩa duy nhất.
-				- Với bản dịch tiếng Trung, word dùng chữ Hán phồn thể; pronunciation và reading dùng pinyin có dấu thanh.
-				- partOfSpeech ghi bằng tiếng Việt.
-				- meanings là danh sách nghĩa tiếng Việt của riêng từ đó.
-				- usage giải thích rõ hoàn cảnh sử dụng và điểm khác biệt với các từ gần nghĩa.
-				- examples phải gần đời sống, học tập hoặc công việc.
-				- examples[].sentence là tiếng Trung nếu từ đích là tiếng Trung.
-				- examples[].reading là pinyin đầy đủ có dấu thanh.
-				- examples[].translation là bản dịch tiếng Việt tự nhiên.
-				- dictionary.word phải bằng recommendation.defaultWord và là lựa chọn mặc định phù hợp nhất.
-				- dictionary.pronunciation, reading, partOfSpeech, meanings, examples, relatedWords và note phải mô tả từ mặc định.
-				- recommendation.partOfSpeech phải khớp với loại từ của defaultWord.
-				- relatedWords chỉ chứa các từ hoặc cụm từ liên quan KHÁC với từ chính.
-				- dictionary.relatedWords tuyệt đối không được chứa nội dung người dùng đã nhập, dictionary.word hoặc recommendation.defaultWord.
-				- Mỗi translationGroups[].items[].relatedWords tuyệt đối không được chứa nội dung người dùng đã nhập, dictionary.word, recommendation.defaultWord hoặc word của chính item đó.
-				- So sánh sau khi bỏ khoảng trắng thừa và không phân biệt chữ hoa/chữ thường; không lặp lại cùng một từ trong relatedWords.
-				- Nếu không có từ liên quan phù hợp, trả về relatedWords là mảng rỗng [].
-
-				Ví dụ bắt buộc về cách phân loại từ "bảo vệ":
-				- Danh từ có thể gồm 保安, 警衛 nếu phù hợp ngữ cảnh.
-				- Động từ có thể gồm 保護, 保衛, 守護 nếu phù hợp ngữ cảnh.
-				- Không được chỉ trả về 保護 khi các từ khác vẫn thông dụng và mang nghĩa khác nhau.
-
-				Nếu nguồn là tiếng Trung và đích là tiếng Việt:
-				- dictionary.word là bản dịch tiếng Việt mặc định.
-				- translationGroups vẫn nhóm các nghĩa tiếng Việt theo loại từ.
-				- pronunciation và reading có thể dùng pinyin của từ tiếng Trung gốc.
-
-				Nếu nguồn và đích cùng ngôn ngữ:
-				- Vẫn phân tích nghĩa, từ loại, ví dụ và các cách dùng khác nhau.
-				"""
-				.formatted(word, sourceLanguage, targetLanguage);
+				Quy tắc:
+				- dictionary.word phải đúng từ được chọn, không thay bằng từ gần nghĩa khác.
+				- Chỉ phân tích chi tiết đúng một từ; không trả translationGroups và recommendation.
+				- partOfSpeech, meanings, note và phần giải thích phải bằng tiếng Việt.
+				- Nếu từ được chọn là tiếng Trung, word dùng chữ Hán phồn thể và reading dùng pinyin có dấu.
+				- examples gồm 2 đến 4 ví dụ tự nhiên trong đời sống, học tập hoặc công việc.
+				- examples[].sentence dùng tiếng Trung khi từ được chọn là tiếng Trung.
+				- examples[].reading là pinyin đầy đủ có dấu.
+				- examples[].translation là tiếng Việt tự nhiên.
+				- relatedWords không được chứa từ được chọn hoặc từ khóa ban đầu.
+				- Không lặp từ trong relatedWords; nếu không có thì trả mảng rỗng [].
+				""".formatted(
+				selectedWord,
+				originalQuery,
+				sourceLanguage,
+				targetLanguage
+		);
 	}
 
 	private String buildSentencePrompt(String sentence, String sourceLanguage, String targetLanguage) {

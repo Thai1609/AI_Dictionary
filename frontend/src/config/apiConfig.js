@@ -1,6 +1,5 @@
 export function getApiBaseUrl() {
-  return (
-    import.meta.env.VITE_API_BASE_URL ||
-    'https://ai-dictionary-backend-36vo.onrender.com'
-  );
+  // Return empty string to route requests to the local Express server,
+  // which will proxy them to the external Spring Boot backend via http-proxy-middleware.
+  return '';
 }
